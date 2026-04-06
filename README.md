@@ -6,11 +6,12 @@ Expo React Native security dashboard for phishing analysis, threat monitoring, a
 
 Prerequisites:
 - Node.js
+- Python 3.11+ for the backend test/service flow
 - Expo Go on a device or an Android/iOS simulator
 - A Firebase project with Email/Password authentication enabled
 
 1. Install dependencies:
-   `npm install`
+   `npm ci`
 2. Configure `.env` for your backend:
    - set `EXPO_PUBLIC_PHISHING_API_URL` to the backend base URL, or
    - set `EXPO_PUBLIC_PHISHING_API_HOST` and `EXPO_PUBLIC_PHISHING_API_PORT`
@@ -26,6 +27,7 @@ Prerequisites:
 Quality checks:
 - Frontend typecheck: `npm run typecheck`
 - Backend tests: `npm run test:backend`
+- Full local verification: `npm run verify`
 - Backend readiness audit: `GET /readiness`
 
 ## Backend Service

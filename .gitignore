@@ -1,8 +1,49 @@
 node_modules/
+.expo/
+.expo-shared/
 build/
 dist/
 coverage/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .DS_Store
-*.log
-.env*
+Thumbs.db
+
+# Local environments
+.env
+.env.local
+.env.*.local
 !.env.example
+!backend/.env.example
+backend/.env
+backend/cloudrun.env.yaml
+
+# Python virtual environments and caches
+.venv/
+.venv*/
+venv/
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Logs and local tunnels
+*.log
+*.pid
+expo-web.log
+.expo-web.log
+firebase-debug.log
+cloudflared-tunnel*.log
+localtunnel*.log
+uvicorn-*.log
+
+# Firebase and deployment caches
+.firebase/
+
+# Native build artifacts
+android/app/debug.keystore
+
+# Generated training datasets
+backend/data/raw/
+backend/data/processed/

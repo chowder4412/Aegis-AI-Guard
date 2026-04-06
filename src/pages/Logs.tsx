@@ -1,130 +1,486 @@
-import React from 'react';
-import { FileText, Search, Banknote, AtSign, Link2Off, CloudOff, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
-import { motion } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ChevronLeft, ChevronRight, CloudOff, Link2Off, Mail, Search, ShieldAlert } from 'lucide-react-native';
+import { useAuth } from '../context/AuthContext';
+import { useResponsive } from '../hooks/useResponsive';
+import { subscribeToScanEvents } from '../services/securityDataService';
+import type { ScanEvent } from '../types';
+import { fonts, palette, riskColors, shadows } from '../theme';
 
-export const Logs: React.FC = () => {
-  const logs = [
-    { date: 'Oct 24, 2023', time: '14:22:01 GMT', type: 'Bank Phishing', icon: Banknote, iconColor: 'text-error', source: 'secure-verify-chase.net/login', action: 'Blocked', actionBg: 'bg-error-container/40', actionText: 'text-error', confidence: '99.8%' },
-    { date: 'Oct 24, 2023', time: '11:05:45 GMT', type: 'Spear Phishing', icon: AtSign, iconColor: 'text-primary', source: 'hr-portal@corp-update.ru', action: 'Quarantined', actionBg: 'bg-on-secondary-container/20', actionText: 'text-secondary', confidence: '94.2%' },
-    { date: 'Oct 23, 2023', time: '23:58:12 GMT', type: 'Malicious Redirect', icon: Link2Off, iconColor: 'text-error', source: 'bit.ly/3x8K9zP_secure', action: 'Blocked', actionBg: 'bg-error-container/40', actionText: 'text-error', confidence: '100.0%' },
-    { date: 'Oct 23, 2023', time: '09:12:33 GMT', type: 'Credential Harvesting', icon: CloudOff, iconColor: 'text-on-primary-container', source: 'microsoft-support.azure-auth.io', action: 'Blocked', actionBg: 'bg-error-container/40', actionText: 'text-error', confidence: '98.5%' },
-  ];
+const PAGE_SIZE = 8;
+type FilterValue = 'All' | 'Phishing' | 'Spoofing' | 'Malware' | 'Other';
+
+const getEventIcon = (event: ScanEvent) => {
+  if (event.inputType === 'url') {
+    return Link2Off;
+  }
+  if (event.category === 'Malware') {
+    return CloudOff;
+  }
+  if (event.category === 'Phishing' || event.category === 'Spoofing') {
+    return Mail;
+  }
+  return ShieldAlert;
+};
+
+export const Logs = () => {
+  const { isDesktop, isTablet } = useResponsive();
+  const isMobile = !isTablet;
+  const { user } = useAuth();
+  const [events, setEvents] = useState<ScanEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchValue, setSearchValue] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterValue>('All');
+  const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    if (!user) {
+      setEvents([]);
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = subscribeToScanEvents(
+      user.uid,
+      (items) => {
+        setEvents(items);
+        setLoading(false);
+      },
+      () => {
+        setEvents([]);
+        setLoading(false);
+      },
+      100,
+    );
+
+    return unsubscribe;
+  }, [user]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [activeFilter, searchValue]);
+
+  const filteredEvents = useMemo(() => {
+    const normalizedSearch = searchValue.trim().toLowerCase();
+    return events.filter((item) => {
+      const matchesFilter = activeFilter === 'All' ? true : item.category === activeFilter;
+      const matchesSearch = normalizedSearch
+        ? [item.inputPreview, item.summary, item.analysisSourceLabel].some((value) => value.toLowerCase().includes(normalizedSearch))
+        : true;
+      return matchesFilter && matchesSearch;
+    });
+  }, [activeFilter, events, searchValue]);
+
+  const totalPages = Math.max(Math.ceil(filteredEvents.length / PAGE_SIZE), 1);
+  const visibleEvents = filteredEvents.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
+  const interceptedCount = filteredEvents.filter((item) => item.action === 'Blocked').length;
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-12"
-    >
-      <section>
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-          <div className="max-w-2xl">
-            <span className="text-secondary font-bold text-[10px] uppercase tracking-[0.3em] mb-4 block">Audit Intelligence</span>
-            <h2 className="text-5xl md:text-7xl font-headline font-extrabold tracking-tighter text-on-surface mb-6 leading-[0.9]">
-              Threat <span className="text-primary/60">History.</span>
-            </h2>
-            <p className="text-on-primary-container text-lg leading-relaxed opacity-80 max-w-xl">
-              Detailed ledger of intercepted malicious activities and phishing attempts neutralized by the Sentinel AI core. 
-            </p>
-          </div>
-          <div className="bg-surface-container-low px-8 py-6 rounded-[2rem] border border-outline-variant/5">
-            <span className="block text-on-primary-container text-[10px] uppercase tracking-widest mb-2 font-bold">Total Intercepted</span>
-            <span className="text-4xl font-headline font-extrabold text-on-surface">1,429</span>
-          </div>
-        </div>
-      </section>
+    <View style={styles.container}>
+      <View style={[styles.header, isDesktop && styles.headerDesktop]}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.eyebrow}>Audit Intelligence</Text>
+          <Text style={[styles.title, isMobile && styles.titleMobile]}>
+            Threat <Text style={{ color: palette.primaryMuted }}>History.</Text>
+          </Text>
+          <Text style={[styles.body, isMobile && styles.bodyMobile]}>
+            Live audit ledger for completed scans, mitigation actions, and high-risk detections stored in your secure workspace.
+          </Text>
+        </View>
+        <View style={[styles.metricCard, isMobile && styles.metricCardMobile]}>
+          <Text style={styles.metricLabel}>Total Intercepted</Text>
+          <Text style={[styles.metricValue, isMobile && styles.metricValueMobile]}>{interceptedCount}</Text>
+        </View>
+      </View>
 
-      {/* Filters & Status */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-        <div className="md:col-span-8 bg-surface-container-low rounded-[2rem] p-6 flex flex-wrap gap-4 items-center border border-outline-variant/5">
-          <span className="text-on-primary-container text-[10px] font-bold uppercase tracking-widest ml-2">Filter by:</span>
-          <button className="bg-surface-container-highest px-5 py-2.5 rounded-xl text-xs font-bold text-primary hover:brightness-110 transition-all">All Threats</button>
-          {['Bank Phishing', 'Spear Phishing', 'Vishing'].map(f => (
-            <button key={f} className="bg-surface-container-lowest px-5 py-2.5 rounded-xl text-xs font-bold text-on-primary-container hover:text-primary transition-all">
-              {f}
-            </button>
-          ))}
-          <div className="ml-auto flex items-center gap-3 text-on-primary-container bg-surface-container-lowest px-5 py-2.5 rounded-xl border border-outline-variant/5">
-            <Search size={14} />
-            <input 
-              className="bg-transparent border-none focus:ring-0 text-xs font-medium placeholder:text-on-primary-container/30 w-32" 
-              placeholder="Search logs..." 
-              type="text"
+      <View style={[styles.topControls, isDesktop && styles.topControlsDesktop]}>
+        <View style={[styles.filterCard, isDesktop && styles.filterCardDesktop]}>
+          <Text style={styles.filterLabel}>Filter by</Text>
+          <View style={styles.filterChips}>
+            {(['All', 'Phishing', 'Spoofing', 'Malware', 'Other'] as FilterValue[]).map((item) => (
+              <Pressable key={item} onPress={() => setActiveFilter(item)} style={[styles.filterChip, activeFilter === item && styles.filterChipActive]}>
+                <Text style={[styles.filterChipText, activeFilter === item && styles.filterChipTextActive]}>{item}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.searchWrap}>
+            <Search color={palette.primaryMuted} size={14} />
+            <TextInput
+              onChangeText={setSearchValue}
+              placeholder="Search logs..."
+              placeholderTextColor="rgba(196,198,204,0.35)"
+              style={styles.searchInput}
+              value={searchValue}
             />
-          </div>
-        </div>
-        
-        <div className="md:col-span-4 bg-surface-container-low rounded-[2rem] p-6 flex items-center justify-between border border-outline-variant/5">
-          <div>
-            <span className="block text-on-primary-container text-[10px] uppercase tracking-widest font-bold mb-1">System Status</span>
-            <span className="text-secondary font-headline font-extrabold text-lg">Active Shield</span>
-          </div>
-          <div className="relative flex items-center justify-center w-6 h-6">
-            <div className="absolute inset-0 bg-secondary rounded-full blur-[8px] opacity-40 animate-pulse"></div>
-            <div className="w-3 h-3 rounded-full bg-secondary"></div>
-          </div>
-        </div>
-      </div>
+          </View>
+        </View>
 
-      {/* Table */}
-      <div className="bg-surface-container-low rounded-[2.5rem] overflow-hidden border border-outline-variant/5">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-surface-container-high/50 text-on-primary-container text-[10px] uppercase tracking-[0.2em] font-bold">
-                <th className="px-10 py-6">Timestamp</th>
-                <th className="px-10 py-6">Threat Vector</th>
-                <th className="px-10 py-6">Source Identity</th>
-                <th className="px-10 py-6">Action Taken</th>
-                <th className="px-10 py-6 text-right">Confidence</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant/5">
-              {logs.map((log, i) => (
-                <tr key={i} className="group hover:bg-surface-container-highest/40 transition-colors duration-300">
-                  <td className="px-10 py-8">
-                    <span className="block text-on-surface text-sm font-bold">{log.date}</span>
-                    <span className="text-on-primary-container text-xs opacity-60 font-mono">{log.time}</span>
-                  </td>
-                  <td className="px-10 py-8">
-                    <div className="flex items-center gap-4">
-                      <log.icon className={log.iconColor} size={18} />
-                      <span className="text-on-surface font-bold text-sm">{log.type}</span>
-                    </div>
-                  </td>
-                  <td className="px-10 py-8">
-                    <code className="text-primary bg-surface-container-lowest px-3 py-1.5 rounded-lg text-[10px] font-mono border border-outline-variant/5">
-                      {log.source}
-                    </code>
-                  </td>
-                  <td className="px-10 py-8">
-                    <span className={`${log.actionBg} ${log.actionText} text-[10px] px-3 py-1 rounded-lg font-bold uppercase tracking-widest border border-current/10`}>
-                      {log.action}
-                    </span>
-                  </td>
-                  <td className="px-10 py-8 text-right">
-                    <span className="text-on-surface font-mono text-sm font-bold">{log.confidence}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        
-        <div className="px-10 py-8 border-t border-outline-variant/5 flex justify-between items-center bg-surface-container-low/50">
-          <span className="text-on-primary-container text-[10px] font-bold uppercase tracking-widest">
-            Showing 4 of 1,429 entries
-          </span>
-          <div className="flex gap-3">
-            <button className="p-3 rounded-xl bg-surface-container-highest text-on-primary-container hover:text-primary transition-all active:scale-90">
-              <ChevronLeft size={18} />
-            </button>
-            <button className="p-3 rounded-xl bg-surface-container-highest text-on-primary-container hover:text-primary transition-all active:scale-90">
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
+        <View style={[styles.statusCard, isDesktop && styles.statusCardDesktop]}>
+          <Text style={styles.statusLabel}>System Status</Text>
+          <View style={styles.statusRow}>
+            <Text style={styles.statusValue}>{loading ? 'Syncing' : 'Audit Live'}</Text>
+            <View style={[styles.statusDot, loading && styles.statusDotLoading]} />
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.listCard}>
+        {loading ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator color={palette.secondary} size="large" />
+            <Text style={styles.paginationText}>Loading stored audit records...</Text>
+          </View>
+        ) : visibleEvents.length === 0 ? (
+          <View style={styles.emptyState}>
+            <ShieldAlert color={palette.primaryMuted} size={36} />
+            <Text style={styles.emptyTitle}>No logs available</Text>
+            <Text style={styles.emptyBody}>Run manual scans or create detections to populate the audit ledger.</Text>
+          </View>
+        ) : (
+          visibleEvents.map((log) => {
+            const Icon = getEventIcon(log);
+            const blocked = log.action === 'Blocked';
+            const riskStyle = riskColors[log.risk];
+            return (
+              <View key={log.id} style={styles.logRow}>
+                <View style={styles.logMeta}>
+                  <Text style={styles.logDate}>{new Date(log.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</Text>
+                  <Text style={styles.logTime}>{new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                </View>
+
+                <View style={styles.logVector}>
+                  <Icon color={blocked ? palette.error : riskStyle.text} size={18} />
+                  <Text style={styles.logType}>{log.category}</Text>
+                </View>
+
+                <Text style={styles.logSource}>{log.inputPreview}</Text>
+
+                <View style={[styles.actionBadge, blocked && styles.actionBadgeBlocked, !blocked && { backgroundColor: riskStyle.tint }]}>
+                  <Text style={[styles.actionText, blocked && styles.actionTextBlocked, !blocked && { color: riskStyle.text }]}>{log.action}</Text>
+                </View>
+
+                <Text style={styles.confidenceText}>{log.confidence}%</Text>
+              </View>
+            );
+          })
+        )}
+
+        <View style={styles.pagination}>
+          <Text style={styles.paginationText}>
+            {filteredEvents.length === 0 ? 'No entries to show' : `Showing ${Math.min(page * PAGE_SIZE + visibleEvents.length, filteredEvents.length)} of ${filteredEvents.length} entries`}
+          </Text>
+          <View style={styles.paginationButtons}>
+            <Pressable disabled={page === 0} onPress={() => setPage((current) => Math.max(current - 1, 0))} style={({ pressed }) => [styles.pageButton, (pressed || page === 0) && styles.pageButtonDisabled]}>
+              <ChevronLeft color={palette.primaryMuted} size={18} />
+            </Pressable>
+            <Pressable
+              disabled={page >= totalPages - 1}
+              onPress={() => setPage((current) => Math.min(current + 1, totalPages - 1))}
+              style={({ pressed }) => [styles.pageButton, (pressed || page >= totalPages - 1) && styles.pageButtonDisabled]}
+            >
+              <ChevronRight color={palette.primaryMuted} size={18} />
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    gap: 18,
+    width: '100%',
+    maxWidth: 1320,
+    alignSelf: 'center',
+  },
+  header: {
+    gap: 18,
+  },
+  headerDesktop: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  topControls: {
+    gap: 16,
+  },
+  topControlsDesktop: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  eyebrow: {
+    color: palette.secondary,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  title: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 52,
+    lineHeight: 54,
+    marginTop: 12,
+  },
+  titleMobile: {
+    fontSize: 38,
+    lineHeight: 42,
+  },
+  body: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 17,
+    lineHeight: 25,
+    marginTop: 12,
+  },
+  bodyMobile: {
+    fontSize: 15,
+    lineHeight: 23,
+  },
+  metricCard: {
+    alignSelf: 'flex-start',
+    borderRadius: 28,
+    backgroundColor: palette.surfaceLow,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 20,
+    gap: 8,
+    ...shadows.card,
+  },
+  metricCardMobile: {
+    borderRadius: 24,
+    padding: 18,
+  },
+  metricLabel: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  metricValue: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 38,
+  },
+  metricValueMobile: {
+    fontSize: 30,
+  },
+  filterCard: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 18,
+    gap: 14,
+    ...shadows.card,
+  },
+  filterCardDesktop: {
+    flex: 2,
+  },
+  filterLabel: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  filterChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  filterChip: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: palette.backgroundDeep,
+  },
+  filterChipActive: {
+    backgroundColor: palette.surfaceHighest,
+  },
+  filterChipText: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 13,
+  },
+  filterChipTextActive: {
+    color: palette.primary,
+  },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    backgroundColor: palette.backgroundDeep,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  searchInput: {
+    flex: 1,
+    color: palette.onSurface,
+    fontFamily: fonts.body,
+    fontSize: 14,
+  },
+  statusCard: {
+    borderRadius: 28,
+    backgroundColor: palette.surfaceLow,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 20,
+    gap: 10,
+    ...shadows.card,
+  },
+  statusCardDesktop: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  statusLabel: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statusValue: {
+    color: palette.secondary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 20,
+  },
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: palette.secondary,
+  },
+  statusDotLoading: {
+    backgroundColor: palette.warning,
+  },
+  listCard: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 18,
+    gap: 14,
+    ...shadows.card,
+  },
+  loadingState: {
+    minHeight: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+  },
+  emptyState: {
+    minHeight: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 24,
+  },
+  emptyTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 22,
+  },
+  emptyBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  logRow: {
+    borderRadius: 20,
+    backgroundColor: 'rgba(50,53,60,0.24)',
+    padding: 16,
+    gap: 10,
+  },
+  logMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  logDate: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+  },
+  logTime: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+  },
+  logVector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  logType: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 15,
+  },
+  logSource: {
+    color: palette.primary,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 12,
+  },
+  actionBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  actionBadgeBlocked: {
+    backgroundColor: 'rgba(255,92,82,0.16)',
+  },
+  actionText: {
+    fontFamily: fonts.headlineBold,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  actionTextBlocked: {
+    color: palette.error,
+  },
+  confidenceText: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+  },
+  pagination: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 6,
+  },
+  paginationText: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  paginationButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pageButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    backgroundColor: palette.surfaceHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pageButtonDisabled: {
+    opacity: 0.5,
+  },
+});

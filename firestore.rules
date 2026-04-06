@@ -1,38 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: threats
-    // Document ID: auto-generated or threatId
-    // Fields:
-    //   - id: string (required)
-    //   - source: string (required)
-    //   - type: string (required)
-    //   - category: string (required, enum)
-    //   - risk: string (required, enum)
-    //   - timestamp: string (required)
-    //   - status: string (required, enum)
-    //   - aiAnalysis: map (optional)
-    //   - createdBy: string (optional, UID)
-    //
-    // Collection: users
-    // Document ID: userId (UID)
-    // Fields:
-    //   - uid: string (required)
-    //   - email: string (required)
-    //   - displayName: string (optional)
-    //   - photoURL: string (optional)
-    //   - role: string (optional, enum)
-    //
-    // ===============================================================
-
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
-    
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -43,64 +11,204 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "mustealawal@gmail.com" && request.auth.token.email_verified == true));
+        (
+          request.auth.token.admin == true ||
+          (request.auth.token.email == "mustealawal@gmail.com" && request.auth.token.email_verified == true)
+        );
     }
 
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
+    function validRisk(value) {
+      return value in ['Critical', 'High', 'Medium', 'Low'];
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
+    function validCategory(value) {
+      return value in ['Phishing', 'Malware', 'Spoofing', 'Social', 'Other'];
     }
 
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    function validNotificationPrefs(data) {
+      return !('notifications' in data) || (
+        data.notifications.keys().hasOnly(['criticalAlerts', 'weeklyReport', 'marketing']) &&
+        data.notifications.criticalAlerts is bool &&
+        data.notifications.weeklyReport is bool &&
+        data.notifications.marketing is bool
+      );
     }
 
-    // ===============================================================
-    // Domain Validators
-    // ===============================================================
-
-    function isValidThreat(data) {
-      return hasRequiredFields(['id', 'source', 'type', 'category', 'risk', 'timestamp', 'status']) &&
-             data.category in ['Phishing', 'Malware', 'Spoofing', 'Social', 'Other'] &&
-             data.risk in ['Critical', 'High', 'Medium', 'Low'] &&
-             data.status in ['active', 'reviewed'] &&
-             data.source is string && data.source.size() < 256 &&
-             data.type is string && data.type.size() < 256;
+    function validPreferences(data) {
+      return !('preferences' in data) || (
+        data.preferences.keys().hasOnly(['realtimeEnabled', 'detectionSensitivity', 'notifications']) &&
+        data.preferences.realtimeEnabled is bool &&
+        data.preferences.detectionSensitivity in ['low', 'medium', 'high'] &&
+        validNotificationPrefs(data.preferences)
+      );
     }
 
-    function isValidUser(data) {
-      return hasRequiredFields(['uid', 'email']) &&
-             isValidEmail(data.email) &&
-             data.uid == request.auth.uid &&
-             (!('role' in data) || data.role in ['admin', 'analyst']);
+    function validUserDoc(data, userId) {
+      return data.uid == userId &&
+        data.email is string &&
+        validPreferences(data) &&
+        (!('role' in data) || data.role in ['admin', 'analyst']);
     }
 
-    // ===============================================================
-    // Rules
-    // ===============================================================
+    function validLinkedEmail(data) {
+      return data.keys().hasOnly([
+          'email',
+          'linkedAt',
+          'lastSyncedAt',
+          'hasCompletedInitialScan',
+          'status',
+          'provider',
+          'health',
+          'lastAlertAt',
+          'lastAlertCount',
+          'lastScannedCount',
+          'lastScanOutcome',
+          'nextScheduledScanAt',
+          'consecutiveFailures',
+          'lastError',
+          'topSignals',
+          'tokens'
+        ]) &&
+        data.email is string &&
+        data.linkedAt is string &&
+        (!('lastSyncedAt' in data) || data.lastSyncedAt is string) &&
+        (!('hasCompletedInitialScan' in data) || data.hasCompletedInitialScan is bool) &&
+        data.status in ['active', 'syncing', 'error'] &&
+        (!('provider' in data) || data.provider in ['manual', 'gmail-oauth']) &&
+        (!('health' in data) || data.health in ['healthy', 'watch', 'degraded']) &&
+        (!('lastAlertAt' in data) || data.lastAlertAt is string) &&
+        (!('lastAlertCount' in data) || data.lastAlertCount is number) &&
+        (!('lastScannedCount' in data) || data.lastScannedCount is number) &&
+        (!('lastScanOutcome' in data) || data.lastScanOutcome in ['clean', 'alerts', 'failed']) &&
+        (!('nextScheduledScanAt' in data) || data.nextScheduledScanAt is string) &&
+        (!('consecutiveFailures' in data) || data.consecutiveFailures is number) &&
+        (!('lastError' in data) || data.lastError is string) &&
+        (!('topSignals' in data) || data.topSignals is list);
+    }
+
+    function validScanEvent(data) {
+      return data.keys().hasOnly([
+          'inputType',
+          'inputPreview',
+          'createdAt',
+          'risk',
+          'category',
+          'confidence',
+          'summary',
+          'recommendation',
+          'analysisSource',
+          'analysisSourceLabel',
+          'mitreTechnique',
+          'mitreTactic',
+          'action',
+          'threatId'
+        ]) &&
+        data.inputType in ['url', 'email'] &&
+        data.inputPreview is string &&
+        data.createdAt is string &&
+        validRisk(data.risk) &&
+        validCategory(data.category) &&
+        data.confidence is number &&
+        data.summary is string &&
+        data.recommendation is string &&
+        data.analysisSource in ['backend-model', 'gemini', 'fallback', 'hybrid', 'local-intelligence'] &&
+        data.analysisSourceLabel is string &&
+        data.mitreTechnique is string &&
+        data.mitreTactic is string &&
+        data.action in ['Blocked', 'Allowed', 'Review'] &&
+        (!('threatId' in data) || data.threatId is string);
+    }
+
+    function validThreatAnalysis(data) {
+      return data.keys().hasOnly([
+          'summary',
+          'detailedSummary',
+          'confidence',
+          'recommendation',
+          'technicalDetails',
+          'detectionMethod',
+          'impactScore',
+          'affectedAssets',
+          'mitreTechnique',
+          'mitreTactic'
+        ]) &&
+        data.summary is string &&
+        data.detailedSummary is string &&
+        data.confidence is number &&
+        data.recommendation is string &&
+        data.technicalDetails is list &&
+        data.detectionMethod is string &&
+        data.impactScore is number &&
+        data.affectedAssets is list &&
+        data.mitreTechnique is string &&
+        data.mitreTactic is string;
+    }
+
+    function validThreat(data) {
+      return data.keys().hasOnly([
+          'source',
+          'type',
+          'category',
+          'risk',
+          'timestamp',
+          'aiAnalysis',
+          'status',
+          'inputType',
+          'createdAt'
+        ]) &&
+        data.source is string &&
+        data.type is string &&
+        validCategory(data.category) &&
+        validRisk(data.risk) &&
+        data.timestamp is string &&
+        validThreatAnalysis(data.aiAnalysis) &&
+        data.status in ['active', 'reviewed'] &&
+        (!('inputType' in data) || data.inputType in ['url', 'email']) &&
+        (!('createdAt' in data) || data.createdAt is string);
+    }
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
-                      (!('role' in request.resource.data) || request.resource.data.role == 'analyst' || isAdmin());
-      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
-                      (request.resource.data.role == resource.data.role || isAdmin());
+      allow create: if isOwner(userId) &&
+        validUserDoc(request.resource.data, userId) &&
+        (!('role' in request.resource.data) || request.resource.data.role == 'analyst' || isAdmin());
+      allow update: if isOwner(userId) &&
+        validUserDoc(request.resource.data, userId) &&
+        (
+          isAdmin() ||
+          (
+            (!('role' in request.resource.data) && !('role' in resource.data)) ||
+            (('role' in request.resource.data) && ('role' in resource.data) && request.resource.data.role == resource.data.role)
+          )
+        );
+      allow delete: if isOwner(userId) || isAdmin();
+
+      match /linkedEmails/{emailId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && validLinkedEmail(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /gmailConnections/{connectionId} {
+        allow read, write: if false;
+      }
+
+      match /scanEvents/{scanEventId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && validScanEvent(request.resource.data);
+        allow update: if (isOwner(userId) || isAdmin()) && validScanEvent(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /threats/{threatId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && validThreat(request.resource.data);
+        allow update: if (isOwner(userId) || isAdmin()) &&
+          validThreat(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
     }
 
-    match /threats/{threatId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidThreat(request.resource.data);
-      allow update: if isAuthenticated() && isValidThreat(request.resource.data) && 
-                      (isAdmin() || (resource.data.createdBy == request.auth.uid) || 
-                       (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])));
-      allow delete: if isAdmin();
-    }
-
-    // Default deny
     match /{path=**} {
       allow read, write: if false;
     }

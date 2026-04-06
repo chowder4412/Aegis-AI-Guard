@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Aegis AI Guard",
+    "slug": "aegis-ai-guard",
+    "scheme": "aegisguard",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "package": "com.aegis.aiguard",
+      "googleServicesFile": "./firebase-native/google-services.json"
+    },
+    "ios": {
+      "bundleIdentifier": "com.aegis.aiguard",
+      "googleServicesFile": "./firebase-native/GoogleService-Info.plist",
+      "usesAppleSignIn": true
+    },
+    "plugins": [
+      "expo-font",
+      "expo-apple-authentication",
+      "expo-web-browser",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
+    ]
+  }
+}

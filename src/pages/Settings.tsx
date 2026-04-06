@@ -1,253 +1,793 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Mail, ShieldCheck, Bell, History, Lock, ChevronRight, CheckCircle2, Shield, Eye, EyeOff, Key, Save, Loader2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useLinkedEmails } from '../context/LinkedEmailsContext';
+import { useEffect, useMemo, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ArrowLeft, Bell, CheckCircle2, ChevronRight, Eye, EyeOff, History, Key, Radar, Save } from 'lucide-react-native';
+import type { AppTab } from '../components/BottomNavBar';
 import { EmailLinker } from '../components/EmailLinker';
+import { useAuth } from '../context/AuthContext';
+import { useLinkedEmails } from '../context/LinkedEmailsContext';
+import { useResponsive } from '../hooks/useResponsive';
+import { isNativeAuthRuntime } from '../firebase';
+import { getStoredGeminiApiKey, setStoredGeminiApiKey } from '../services/geminiService';
+import { getResolvedPhishingApiConfig, getStoredPhishingApiUrl, setStoredPhishingApiUrl } from '../services/phishingApiService';
+import { getDefaultPreferences, getProtectionGrade, saveUserPreferences, subscribeToUserPreferences } from '../services/securityDataService';
+import { fonts, palette, shadows } from '../theme';
 
 interface SettingsProps {
   onBack?: () => void;
+  onNavigateTab?: (tab: AppTab) => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ onBack }) => {
-  const { isAnyEmailLinked } = useLinkedEmails();
+export const Settings = ({ onBack, onNavigateTab }: SettingsProps) => {
+  const { isDesktop, isTablet } = useResponsive();
+  const isMobile = !isTablet;
+  const { user } = useAuth();
+  const { isAnyEmailLinked, linkedEmails } = useLinkedEmails();
   const [apiKey, setApiKey] = useState('');
+  const [phishingApiUrl, setPhishingApiUrl] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveApiUrlSuccess, setSaveApiUrlSuccess] = useState(false);
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  const [resolvedApiHint, setResolvedApiHint] = useState('');
+  const [preferences, setPreferences] = useState(getDefaultPreferences());
+
+  const updateResolvedApiHint = (url: string, source: 'manual' | 'shared-env' | 'expo-dev' | 'unconfigured') => {
+    setResolvedApiHint(
+      source === 'manual'
+        ? `Manual backend override active: ${url}`
+        : source === 'expo-dev'
+          ? `Auto-detected dev backend: ${url}`
+          : source === 'shared-env'
+            ? `Shared default backend: ${url}`
+            : '',
+    );
+  };
 
   useEffect(() => {
-    const savedKey = localStorage.getItem('GEMINI_API_KEY');
-    if (savedKey) setApiKey(savedKey);
+    const hydrate = async () => {
+      const [savedKey, savedApiUrl, resolvedApiConfig] = await Promise.all([
+        getStoredGeminiApiKey(),
+        getStoredPhishingApiUrl(),
+        getResolvedPhishingApiConfig(),
+      ]);
+      setApiKey(savedKey);
+      setPhishingApiUrl(savedApiUrl);
+      updateResolvedApiHint(resolvedApiConfig.url, resolvedApiConfig.source);
+    };
+    void hydrate();
   }, []);
 
-  const handleSaveKey = () => {
-    setIsSaving(true);
-    // Simulate saving to .env (using localStorage for persistence in preview)
-    setTimeout(() => {
-      localStorage.setItem('GEMINI_API_KEY', apiKey);
-      setIsSaving(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    }, 1500);
+  useEffect(() => {
+    if (!user) {
+      setPreferences(getDefaultPreferences());
+      return;
+    }
+
+    const unsubscribe = subscribeToUserPreferences(user.uid, setPreferences);
+    return unsubscribe;
+  }, [user]);
+
+  const handleSaveKey = async () => {
+    await setStoredGeminiApiKey(apiKey);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2500);
+  };
+
+  const handleSaveApiUrl = async () => {
+    await setStoredPhishingApiUrl(phishingApiUrl);
+    const resolvedApiConfig = await getResolvedPhishingApiConfig();
+    updateResolvedApiHint(resolvedApiConfig.url, resolvedApiConfig.source);
+    setSaveApiUrlSuccess(true);
+    setTimeout(() => setSaveApiUrlSuccess(false), 2500);
+  };
+
+  const handleRealtimeToggle = (value: boolean) => {
+    setPreferences((current) => ({ ...current, realtimeEnabled: value }));
+    if (user) {
+      void saveUserPreferences(user.uid, { realtimeEnabled: value });
+    }
+  };
+
+  const handleSensitivityChange = (value: 'low' | 'medium' | 'high') => {
+    setPreferences((current) => ({ ...current, detectionSensitivity: value }));
+    if (user) {
+      void saveUserPreferences(user.uid, { detectionSensitivity: value });
+    }
+  };
+
+  const handleNotificationToggle = (key: keyof typeof preferences.notifications) => {
+    const nextNotifications = {
+      ...preferences.notifications,
+      [key]: !preferences.notifications[key],
+    };
+    setPreferences((current) => ({ ...current, notifications: nextNotifications }));
+    if (user) {
+      void saveUserPreferences(user.uid, { notifications: nextNotifications });
+    }
+  };
+
+  const protectionGrade = useMemo(
+    () =>
+      getProtectionGrade(
+        linkedEmails.length,
+        preferences.realtimeEnabled,
+        preferences.detectionSensitivity,
+        preferences.notifications.criticalAlerts,
+      ),
+    [linkedEmails.length, preferences],
+  );
+  const runtimeReadiness = useMemo(
+    () => [
+      {
+        label: 'Runtime',
+        value: Platform.OS === 'web' ? 'Hosted/Web' : Platform.OS === 'ios' ? 'iOS' : Platform.OS === 'android' ? 'Android' : Platform.OS,
+      },
+      {
+        label: 'Auth Bridge',
+        value: isNativeAuthRuntime ? 'Native Firebase' : 'JS/Auth Session',
+      },
+      {
+        label: 'Phone Auth',
+        value: Platform.OS === 'web' ? 'Ready on web' : isNativeAuthRuntime ? 'Ready in dev build' : 'Needs dev build',
+      },
+      {
+        label: 'Mailbox Auto Sweep',
+        value: linkedEmails.some((item) => item.provider === 'gmail-oauth') ? 'Active with scheduling' : 'Awaiting Gmail link',
+      },
+    ],
+    [linkedEmails],
+  );
+
+  const handleOpenAdvancedConfiguration = () => {
+    setAdvancedExpanded(true);
   };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="max-w-3xl mx-auto space-y-12"
-    >
-      {/* Header */}
-      <header className="flex items-center gap-6 mb-12">
-        <button 
-          onClick={onBack}
-          className="text-primary hover:bg-surface-container-highest transition-all active:scale-90 p-3 rounded-2xl border border-outline-variant/10"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="font-headline font-extrabold text-3xl tracking-tight text-primary">Settings</h1>
-      </header>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Pressable onPress={onBack} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+          <ArrowLeft color={palette.primary} size={20} />
+        </Pressable>
+        <Text style={[styles.headerTitle, isMobile && styles.headerTitleMobile]}>Settings</Text>
+      </View>
 
-      {/* Account Protection */}
-      <section>
-        <div className="flex justify-between items-end mb-8">
-          <h2 className="font-headline text-4xl font-extrabold tracking-tighter">Account Protection</h2>
-          <div className={`${isAnyEmailLinked ? 'bg-emerald-500/20 border-emerald-500/10' : 'bg-error-container/20 border-error/10'} px-4 py-1.5 rounded-lg border`}>
-            <span className={`${isAnyEmailLinked ? 'text-emerald-500' : 'text-error'} font-bold text-[10px] uppercase tracking-[0.2em]`}>
+      <View style={styles.section}>
+        <View style={[styles.sectionTitleRow, isMobile && styles.sectionTitleRowMobile]}>
+          <Text style={[styles.sectionTitle, isMobile && styles.sectionTitleMobile]}>Account Protection</Text>
+          <View style={[styles.protectionBadge, isAnyEmailLinked ? styles.protectedBadge : styles.unprotectedBadge]}>
+            <Text style={[styles.protectionText, isAnyEmailLinked ? styles.protectedText : styles.unprotectedText]}>
               {isAnyEmailLinked ? 'Protected' : 'Not Protected'}
-            </span>
-          </div>
-        </div>
-        
+            </Text>
+          </View>
+        </View>
         <EmailLinker />
-      </section>
+      </View>
 
-      {/* Security Core */}
-      <section className="space-y-8">
-        <div className="flex items-center gap-4">
-          <h2 className="font-headline text-xs font-bold tracking-[0.4em] uppercase text-on-primary-container">Security Core</h2>
-          <div className="h-[1px] flex-1 bg-outline-variant/10"></div>
-        </div>
-        
-        <div className="space-y-6">
-          {/* Gemini API Key Configuration */}
-          <div className="bg-surface-container-low rounded-[2rem] p-8 border border-outline-variant/5">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                <Key size={20} />
-              </div>
-              <div>
-                <h3 className="font-headline font-extrabold text-xl">Gemini AI Configuration</h3>
-                <p className="text-[10px] text-on-primary-container font-bold uppercase tracking-widest opacity-60">Core Intelligence Engine</p>
-              </div>
-            </div>
+      <View style={styles.section}>
+        <Text style={styles.eyebrow}>Security Core</Text>
 
-            <div className="space-y-4">
-              <div className="relative">
-                <input
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter Gemini API Key"
-                  className="w-full bg-surface-container-highest/50 border border-outline-variant/20 rounded-2xl px-5 py-4 text-sm font-mono focus:outline-none focus:border-primary/50 transition-all pr-12"
-                />
-                <button
-                  onClick={() => setShowKey(!showKey)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-on-primary-container/40 hover:text-primary transition-colors"
-                >
-                  {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-on-primary-container opacity-60 max-w-[70%]">
-                  This key powers the real-time threat analysis and behavioral bot. It will be stored securely in the environment configuration.
-                </p>
-                <button
-                  onClick={handleSaveKey}
-                  disabled={isSaving}
-                  className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm transition-all active:scale-95 ${
-                    saveSuccess 
-                      ? 'bg-emerald-500 text-white' 
-                      : 'bg-primary text-on-primary shadow-lg shadow-primary/20'
-                  }`}
-                >
-                  {isSaving ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : saveSuccess ? (
-                    <CheckCircle2 size={16} />
-                  ) : (
-                    <Save size={16} />
-                  )}
-                  {isSaving ? 'Saving...' : saveSuccess ? 'Saved to .env' : 'Save Key'}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Real-time Toggle */}
-          <div className="bg-surface-container-low rounded-[2rem] p-8 border border-outline-variant/5">
-            <div className="flex items-start justify-between gap-6">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="font-headline font-extrabold text-xl">Real-time Automatic Threat Detection</span>
-                  <div className="relative flex items-center justify-center w-4 h-4">
-                    <div className="absolute inset-0 bg-secondary rounded-full blur-[6px] opacity-40 animate-pulse"></div>
-                    <div className="w-2 h-2 bg-secondary rounded-full"></div>
-                  </div>
-                </div>
-                <p className="text-on-primary-container text-base leading-relaxed opacity-80">
-                  Automatically intercept and quarantine fraudulent emails the moment they arrive in your inbox.
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer mt-2">
-                <input checked readOnly className="sr-only peer" type="checkbox" />
-                <div className="w-16 h-9 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-on-primary-container after:border-none after:rounded-full after:h-7 after:w-7 after:transition-all peer-checked:bg-secondary/20 peer-checked:after:bg-secondary shadow-inner"></div>
-              </label>
-            </div>
-          </div>
-
-          {/* Sensitivity Level */}
-          <div className="bg-surface-container-low rounded-[2rem] p-8 border border-outline-variant/5">
-            <div className="flex items-center justify-between mb-8">
-              <label className="font-headline font-extrabold text-xl">Detection Sensitivity</label>
-              <span className="text-[10px] font-bold text-secondary uppercase tracking-[0.3em] bg-secondary/10 px-3 py-1 rounded-lg border border-secondary/10">Adaptive AI Active</span>
-            </div>
-            
-            <div className="grid grid-cols-1 gap-4">
-              {[
-                { id: 'low', title: 'Low Sensitivity', desc: 'Focuses only on high-confidence phishing attempts. Minimizes false positives.', active: false },
-                { id: 'medium', title: 'Medium (Standard)', desc: 'Balanced protection using neural behavior analysis. Optimal for most users.', active: true, recommended: true },
-                { id: 'high', title: 'High Sensitivity', desc: 'Strictest filtering. Flags all suspicious links and requests. May require manual review.', active: false },
-              ].map((level) => (
-                <button 
-                  key={level.id}
-                  className={`group flex items-start gap-5 p-6 rounded-2xl border transition-all text-left relative ${
-                    level.active 
-                      ? 'border-secondary bg-secondary/5 ring-4 ring-secondary/5' 
-                      : 'border-outline-variant/10 bg-surface-container-lowest hover:bg-surface-container-highest/40'
-                  }`}
-                >
-                  {level.recommended && (
-                    <div className="absolute -top-3 right-6 bg-secondary text-on-secondary text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest shadow-lg">
-                      Recommended
-                    </div>
-                  )}
-                  <div className={`mt-1 w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                    level.active ? 'border-secondary' : 'border-outline group-hover:border-primary'
-                  }`}>
-                    {level.active && <div className="w-3 h-3 rounded-full bg-secondary"></div>}
-                  </div>
-                  <div>
-                    <div className="font-headline font-extrabold text-on-surface text-lg">{level.title}</div>
-                    <p className="text-sm text-on-primary-container mt-2 leading-relaxed opacity-70">{level.desc}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Bento Preferences */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-surface-container-low p-8 rounded-[2.5rem] flex flex-col justify-between border border-outline-variant/5">
-          <div>
-            <h3 className="font-headline font-extrabold text-xl mb-1">Security Level</h3>
-            <p className="text-xs text-on-primary-container font-bold uppercase tracking-widest opacity-50">Based on current active shields</p>
-          </div>
-          <div className="mt-12 flex items-baseline gap-3">
-            <span className="text-6xl font-headline font-extrabold text-primary tracking-tighter">A-</span>
-            <span className="text-secondary font-bold text-xs uppercase tracking-[0.2em]">Optimized</span>
-          </div>
-          <div className="mt-6 w-full bg-surface-container-highest h-2 rounded-full overflow-hidden">
-            <motion.div 
-              initial={{ width: 0 }}
-              animate={{ width: '85%' }}
-              className="bg-primary h-full rounded-full"
+        <View style={styles.card}>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Real-time Automatic Threat Detection</Text>
+              <Text style={styles.helperText}>
+                Automatically intercept and quarantine fraudulent emails the moment they arrive in your inbox.
+              </Text>
+            </View>
+            <Switch
+              onValueChange={handleRealtimeToggle}
+              thumbColor={preferences.realtimeEnabled ? palette.secondary : '#D9D9D9'}
+              value={preferences.realtimeEnabled}
             />
-          </div>
-        </div>
+          </View>
+        </View>
 
-        <div className="bg-surface-container-low p-8 rounded-[2.5rem] space-y-6 border border-outline-variant/5">
-          <div className="flex items-center justify-between">
-            <h3 className="font-headline font-extrabold text-xl">Notifications</h3>
-            <Bell className="text-on-primary-container" size={18} />
-          </div>
-          <ul className="space-y-4">
+        <View style={styles.card}>
+          <View style={[styles.cardTopRow, isMobile && styles.cardTopRowMobile]}>
+            <Text style={styles.cardTitle}>Detection Sensitivity</Text>
+            <View style={styles.adaptiveBadge}>
+              <Text style={styles.adaptiveBadgeText}>Adaptive AI Active</Text>
+            </View>
+          </View>
+
+          <View style={styles.sensitivityList}>
             {[
-              { label: 'Critical Alerts', active: true },
-              { label: 'Weekly Report', active: true },
-              { label: 'Marketing', active: false },
-            ].map((item, i) => (
-              <li key={i} className="flex items-center justify-between text-base font-medium">
-                <span className={item.active ? 'text-on-surface' : 'text-on-primary-container/40'}>{item.label}</span>
-                {item.active ? (
-                  <CheckCircle2 className="text-secondary" size={20} fill="currentColor" fillOpacity={0.1} />
-                ) : (
-                  <div className="w-5 h-5 rounded-full border-2 border-outline-variant/20"></div>
-                )}
-              </li>
+              { id: 'low', title: 'Low Sensitivity', desc: 'Focuses only on high-confidence phishing attempts.' },
+              { id: 'medium', title: 'Medium (Standard)', desc: 'Balanced protection using neural behavior analysis.', recommended: true },
+              { id: 'high', title: 'High Sensitivity', desc: 'Strictest filtering with more manual review.' },
+            ].map((level) => (
+              <Pressable
+                key={level.id}
+                onPress={() => handleSensitivityChange(level.id as 'low' | 'medium' | 'high')}
+                style={({ pressed }) => [styles.levelCard, preferences.detectionSensitivity === level.id && styles.levelCardActive, pressed && styles.pressed]}
+              >
+                {level.recommended ? (
+                  <View style={styles.recommendedBadge}>
+                    <Text style={styles.recommendedBadgeText}>Recommended</Text>
+                  </View>
+                ) : null}
+                <View style={[styles.radioOuter, preferences.detectionSensitivity === level.id && styles.radioOuterActive]}>
+                  {preferences.detectionSensitivity === level.id ? <View style={styles.radioInner} /> : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.levelTitle}>{level.title}</Text>
+                  <Text style={styles.levelBody}>{level.desc}</Text>
+                </View>
+              </Pressable>
             ))}
-          </ul>
-        </div>
-      </section>
+          </View>
+        </View>
 
-      {/* Secondary Actions */}
-      <section className="space-y-3">
+        <View style={styles.card}>
+          <Pressable onPress={() => setAdvancedExpanded((current) => !current)} style={({ pressed }) => [styles.advancedHeader, pressed && styles.pressed]}>
+            <View style={styles.cardHeader}>
+              <View style={styles.cardIconPrimary}>
+                <Key color={palette.primary} size={18} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Advanced Configuration</Text>
+                <Text style={styles.cardSubtitle}>Optional manual overrides</Text>
+              </View>
+            </View>
+            <ChevronRight color={palette.primaryMuted} size={18} style={advancedExpanded ? styles.advancedChevronExpanded : undefined} />
+          </Pressable>
+
+          <Text style={styles.helperText}>
+            The app already uses the default services configured in environment variables for regular use. Open this only if you want to override endpoints or keys manually.
+          </Text>
+
+          {advancedExpanded ? (
+            <View style={styles.advancedContent}>
+              <View style={styles.advancedCard}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.cardIconPrimary}>
+                    <Radar color={palette.primary} size={18} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardTitle}>Phishing Detector API</Text>
+                    <Text style={styles.cardSubtitle}>Decision tree backend endpoint</Text>
+                  </View>
+                </View>
+
+                <TextInput
+                  autoCapitalize="none"
+                  keyboardType="url"
+                  onChangeText={setPhishingApiUrl}
+                  placeholder="http://localhost:8000"
+                  placeholderTextColor="rgba(196,198,204,0.35)"
+                  style={styles.apiInput}
+                  value={phishingApiUrl}
+                />
+
+                <View style={styles.saveRow}>
+                  <Text style={styles.helperText}>
+                    Leave this blank to keep using the shared default endpoint from the app environment. If set, email scans call this URL first using POST `/detect`.
+                  </Text>
+                  {resolvedApiHint ? <Text style={styles.configHint}>{resolvedApiHint}</Text> : null}
+                  <Pressable
+                    onPress={handleSaveApiUrl}
+                    style={({ pressed }) => [styles.saveButton, saveApiUrlSuccess && styles.saveButtonSuccess, pressed && styles.pressed]}
+                  >
+                    {saveApiUrlSuccess ? <CheckCircle2 color="#FFFFFF" size={16} /> : <Save color={palette.onSecondary} size={16} />}
+                    <Text style={[styles.saveButtonText, saveApiUrlSuccess && { color: '#FFFFFF' }]}>
+                      {saveApiUrlSuccess ? 'Saved' : 'Save Endpoint'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              <View style={styles.advancedCard}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.cardIconPrimary}>
+                    <Key color={palette.primary} size={18} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardTitle}>Gemini AI Configuration</Text>
+                    <Text style={styles.cardSubtitle}>Core intelligence engine</Text>
+                  </View>
+                </View>
+
+                <View style={styles.inputWrap}>
+                  <TextInput
+                    autoCapitalize="none"
+                    onChangeText={setApiKey}
+                    placeholder="Enter Gemini API Key"
+                    placeholderTextColor="rgba(196,198,204,0.35)"
+                    secureTextEntry={!showKey}
+                    style={styles.apiInput}
+                    value={apiKey}
+                  />
+                  <Pressable onPress={() => setShowKey((current) => !current)} style={styles.eyeButton}>
+                    {showKey ? <EyeOff color={palette.primaryMuted} size={18} /> : <Eye color={palette.primaryMuted} size={18} />}
+                  </Pressable>
+                </View>
+
+                <View style={styles.saveRow}>
+                  <Text style={styles.helperText}>
+                    Leave this blank to keep using the shared default Gemini key from the app environment. If no shared key is available, the app continues with the on-device local intelligence engine.
+                  </Text>
+                  <Pressable onPress={handleSaveKey} style={({ pressed }) => [styles.saveButton, saveSuccess && styles.saveButtonSuccess, pressed && styles.pressed]}>
+                    {saveSuccess ? <CheckCircle2 color="#FFFFFF" size={16} /> : <Save color={palette.onSecondary} size={16} />}
+                    <Text style={[styles.saveButtonText, saveSuccess && { color: '#FFFFFF' }]}>{saveSuccess ? 'Saved' : 'Save Key'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={[styles.preferencesGrid, isDesktop && styles.preferencesGridDesktop]}>
+        <View style={[styles.gradeCard, isDesktop && styles.preferenceCardDesktop]}>
+          <Text style={styles.cardTitle}>Security Level</Text>
+          <Text style={styles.cardSubtitle}>Derived from live coverage and settings</Text>
+          <View style={styles.gradeRow}>
+            <Text style={styles.gradeValue}>{protectionGrade.grade}</Text>
+            <Text style={styles.gradeSub}>{isAnyEmailLinked ? 'Operational' : 'Needs mailbox coverage'}</Text>
+          </View>
+          <View style={styles.gradeTrack}>
+            <View style={[styles.gradeFill, { width: `${protectionGrade.progress}%` }]} />
+          </View>
+        </View>
+
+        <View style={[styles.card, isDesktop && styles.preferenceCardDesktop]}>
+          <View style={styles.notificationHeader}>
+            <Text style={styles.cardTitle}>Notifications</Text>
+            <Bell color={palette.primaryMuted} size={18} />
+          </View>
+          <View style={styles.notificationList}>
+            {[
+              { key: 'criticalAlerts', label: 'Critical Alerts', active: preferences.notifications.criticalAlerts },
+              { key: 'weeklyReport', label: 'Weekly Report', active: preferences.notifications.weeklyReport },
+              { key: 'marketing', label: 'Marketing', active: preferences.notifications.marketing },
+            ].map((item) => (
+              <Pressable key={item.label} onPress={() => handleNotificationToggle(item.key as keyof typeof preferences.notifications)} style={({ pressed }) => [styles.notificationRow, pressed && styles.pressed]}>
+                <Text style={[styles.notificationText, !item.active && styles.notificationTextMuted]}>{item.label}</Text>
+                {item.active ? <CheckCircle2 color={palette.secondary} size={18} /> : <View style={styles.notificationCircle} />}
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        <View style={styles.notificationHeader}>
+          <Text style={styles.cardTitle}>Runtime Readiness</Text>
+          <CheckCircle2 color={palette.secondary} size={18} />
+        </View>
+        <Text style={styles.helperText}>
+          Live diagnostics for the current platform, auth bridge, and mailbox automation path.
+        </Text>
+        <View style={styles.notificationList}>
+          {runtimeReadiness.map((item) => (
+            <View key={item.label} style={styles.notificationRow}>
+              <Text style={styles.notificationText}>{item.label}</Text>
+              <Text style={styles.runtimeValue}>{item.value}</Text>
+            </View>
+          ))}
+          {resolvedApiHint ? <Text style={styles.configHint}>{resolvedApiHint}</Text> : null}
+        </View>
+      </View>
+
+      <View style={styles.actionsList}>
         {[
-          { label: 'Security Audit Log', icon: History },
-          { label: 'Encryption Keys', icon: Lock },
-        ].map((action, i) => (
-          <button key={i} className="w-full flex items-center justify-between px-8 py-6 bg-surface-container-low rounded-[2rem] group hover:bg-surface-container-high transition-all border border-outline-variant/5">
-            <div className="flex items-center gap-5">
-              <action.icon className="text-on-primary-container" size={20} />
-              <span className="font-headline font-extrabold text-on-surface text-lg">{action.label}</span>
-            </div>
-            <ChevronRight className="text-on-primary-container/30 group-hover:translate-x-2 transition-transform" size={20} />
-          </button>
-        ))}
-      </section>
-    </motion.div>
+          {
+            label: 'Security Audit Log',
+            icon: History,
+            onPress: () => onNavigateTab?.('logs'),
+          },
+          {
+            label: 'Advanced Configuration',
+            icon: Key,
+            onPress: handleOpenAdvancedConfiguration,
+          },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <Pressable key={item.label} onPress={item.onPress} style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}>
+              <View style={styles.actionLeft}>
+                <Icon color={palette.primaryMuted} size={18} />
+                <Text style={styles.actionText}>{item.label}</Text>
+              </View>
+              <ChevronRight color={palette.primaryMuted} size={18} />
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    gap: 22,
+    width: '100%',
+    maxWidth: 1200,
+    alignSelf: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  backButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 18,
+    backgroundColor: palette.surfaceHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    color: palette.primary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 30,
+  },
+  headerTitleMobile: {
+    fontSize: 26,
+  },
+  section: {
+    gap: 16,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  sectionTitleRowMobile: {
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+  },
+  sectionTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 34,
+  },
+  sectionTitleMobile: {
+    fontSize: 32,
+    lineHeight: 38,
+    maxWidth: 260,
+  },
+  protectionBadge: {
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  protectedBadge: {
+    backgroundColor: 'rgba(39,198,122,0.16)',
+  },
+  unprotectedBadge: {
+    backgroundColor: 'rgba(255,92,82,0.16)',
+  },
+  protectionText: {
+    fontFamily: fonts.headlineBold,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  protectedText: {
+    color: palette.success,
+  },
+  unprotectedText: {
+    color: palette.error,
+  },
+  eyebrow: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  card: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 20,
+    gap: 16,
+    ...shadows.card,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  cardIconPrimary: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    backgroundColor: 'rgba(187,198,226,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 22,
+  },
+  cardSubtitle: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    marginTop: 4,
+  },
+  inputWrap: {
+    position: 'relative',
+  },
+  apiInput: {
+    borderRadius: 18,
+    backgroundColor: 'rgba(50,53,60,0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.35)',
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    paddingRight: 48,
+    color: palette.onSurface,
+    fontFamily: fonts.body,
+    fontSize: 14,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 14,
+    top: 14,
+  },
+  saveRow: {
+    gap: 14,
+  },
+  helperText: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  configHint: {
+    color: palette.secondary,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  saveButton: {
+    alignSelf: 'flex-start',
+    borderRadius: 16,
+    backgroundColor: palette.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  saveButtonSuccess: {
+    backgroundColor: palette.success,
+  },
+  saveButtonText: {
+    color: '#263046',
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    gap: 14,
+    alignItems: 'flex-start',
+  },
+  advancedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  advancedChevronExpanded: {
+    transform: [{ rotate: '90deg' }],
+  },
+  advancedContent: {
+    gap: 16,
+  },
+  advancedCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.22)',
+    backgroundColor: 'rgba(11,14,20,0.22)',
+    padding: 16,
+    gap: 16,
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  cardTopRowMobile: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  adaptiveBadge: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(74,225,131,0.12)',
+    alignSelf: 'flex-start',
+  },
+  adaptiveBadgeText: {
+    color: palette.secondary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  sensitivityList: {
+    gap: 12,
+  },
+  levelCard: {
+    borderRadius: 22,
+    padding: 18,
+    backgroundColor: palette.backgroundDeep,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.28)',
+    flexDirection: 'row',
+    gap: 14,
+    position: 'relative',
+  },
+  levelCardActive: {
+    borderColor: palette.secondary,
+    backgroundColor: 'rgba(74,225,131,0.06)',
+  },
+  recommendedBadge: {
+    position: 'absolute',
+    right: 16,
+    top: -12,
+    borderRadius: 999,
+    backgroundColor: palette.secondary,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  recommendedBadgeText: {
+    color: palette.onSecondary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 9,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  radioOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: palette.primaryMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  radioOuterActive: {
+    borderColor: palette.secondary,
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: palette.secondary,
+  },
+  levelTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 18,
+  },
+  levelBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 6,
+  },
+  preferencesGrid: {
+    gap: 16,
+  },
+  preferencesGridDesktop: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  preferenceCardDesktop: {
+    flex: 1,
+  },
+  gradeCard: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 22,
+    gap: 12,
+    ...shadows.card,
+  },
+  gradeRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    marginTop: 8,
+  },
+  gradeValue: {
+    color: palette.primary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 66,
+    lineHeight: 68,
+  },
+  gradeSub: {
+    color: palette.secondary,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  gradeTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(50,53,60,0.3)',
+    overflow: 'hidden',
+  },
+  gradeFill: {
+    width: '85%',
+    height: '100%',
+    backgroundColor: palette.primary,
+    borderRadius: 999,
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  notificationList: {
+    gap: 14,
+  },
+  notificationRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  notificationText: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 15,
+  },
+  runtimeValue: {
+    color: palette.secondary,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 13,
+    maxWidth: '55%',
+    textAlign: 'right',
+  },
+  notificationTextMuted: {
+    color: 'rgba(196,198,204,0.44)',
+  },
+  notificationCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: 'rgba(68,71,76,0.35)',
+  },
+  actionsList: {
+    gap: 12,
+  },
+  actionRow: {
+    borderRadius: 24,
+    backgroundColor: palette.surfaceLow,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    ...shadows.card,
+  },
+  actionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  actionText: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 18,
+  },
+  pressed: {
+    opacity: 0.92,
+  },
+});

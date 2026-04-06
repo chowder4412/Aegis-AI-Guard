@@ -1,0 +1,5 @@
+*
+!backend/
+!backend/**
+!firebase-applet-config.json
+!.gcloudignore

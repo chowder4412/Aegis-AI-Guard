@@ -1,115 +1,288 @@
-import React from 'react';
-import { SearchCode, Rocket, CheckCircle2, RefreshCw, Hourglass, BarChart3 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { BarChart3, CheckCircle2, CloudOff, RefreshCw, SearchCode } from 'lucide-react-native';
+import { ManualScan } from '../components/ManualScan';
+import { useAuth } from '../context/AuthContext';
+import { useResponsive } from '../hooks/useResponsive';
+import { getStoredGeminiApiKey } from '../services/geminiService';
+import { getResolvedPhishingApiConfig } from '../services/phishingApiService';
+import { subscribeToScanEvents } from '../services/securityDataService';
+import type { ScanEvent } from '../types';
+import { fonts, palette, shadows } from '../theme';
 
-export const Scanner: React.FC = () => {
+export const Scanner = () => {
+  const { isDesktop, isTablet } = useResponsive();
+  const isMobile = !isTablet;
+  const { user } = useAuth();
+  const [events, setEvents] = useState<ScanEvent[]>([]);
+  const [phishingApiConfigured, setPhishingApiConfigured] = useState(false);
+  const [phishingApiStatusLabel, setPhishingApiStatusLabel] = useState('No phishing detector endpoint configured');
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
+
+  useEffect(() => {
+    const hydrate = async () => {
+      const [apiConfig, geminiKey] = await Promise.all([getResolvedPhishingApiConfig(), getStoredGeminiApiKey()]);
+      setPhishingApiConfigured(Boolean(apiConfig.url.trim()));
+      setPhishingApiStatusLabel(
+        apiConfig.source === 'manual'
+          ? 'Manual override active for backend-first email scoring'
+          : apiConfig.source === 'shared-env'
+            ? 'Shared app endpoint configured for backend-first email scoring'
+            : apiConfig.source === 'expo-dev'
+              ? 'Auto-detected local backend from current Expo dev host'
+              : 'No phishing detector endpoint configured',
+      );
+      setGeminiConfigured(Boolean(geminiKey.trim()));
+    };
+
+    void hydrate();
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setEvents([]);
+      return;
+    }
+
+    const unsubscribe = subscribeToScanEvents(user.uid, setEvents, () => setEvents([]), 50);
+    return unsubscribe;
+  }, [user]);
+
+  const blockedCount = useMemo(() => events.filter((item) => item.action === 'Blocked').length, [events]);
+  const recentSource = events[0]?.analysisSourceLabel || 'No scans yet';
+
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-12"
-    >
-      <section className="md:ml-4">
-        <h1 className="font-headline font-extrabold text-5xl md:text-7xl text-primary tracking-tighter mb-4 max-w-2xl leading-[0.9]">
-          Neural Phishing <span className="text-secondary">Analysis.</span>
-        </h1>
-        <p className="font-body text-on-primary-container text-lg max-w-xl leading-relaxed">
-          Deploying high-speed machine learning models to intercept deceptive signatures before they reach your network.
-        </p>
-      </section>
+    <View style={styles.container}>
+      <View>
+        <Text style={[styles.title, isMobile && styles.titleMobile]}>
+          Neural Phishing <Text style={{ color: palette.secondary }}>Analysis.</Text>
+        </Text>
+        <Text style={[styles.body, isMobile && styles.bodyMobile]}>
+          Submit real URLs and email bodies into the detection pipeline. Results are saved to your workspace and drive the dashboard, logs, and threat analytics.
+        </Text>
+      </View>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Input Area */}
-        <div className="lg:col-span-8 bg-surface-container-low rounded-[3rem] p-10 relative overflow-hidden border border-outline-variant/5">
-          <div className="absolute top-0 right-0 p-10 opacity-5 select-none pointer-events-none">
-            <SearchCode size={160} />
-          </div>
-          
-          <label className="block text-[10px] font-bold uppercase tracking-[0.3em] text-on-primary-container mb-8">
-            Security Ingestion Interface
-          </label>
-          
-          <textarea 
-            className="w-full h-72 bg-surface-container-lowest border-none rounded-3xl p-8 text-on-surface placeholder:text-on-primary-container/30 focus:ring-2 focus:ring-primary/20 focus:outline-none resize-none font-body leading-relaxed text-xl transition-all"
-            placeholder="Paste a suspicious URL or raw email content for real-time forensic scanning..."
-          />
-          
-          <div className="mt-10 flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3 px-4 py-2 bg-on-secondary-container/20 rounded-xl border border-secondary/10">
-                <div className="relative flex items-center justify-center">
-                  <div className="absolute w-3 h-3 bg-secondary rounded-full blur-[4px] animate-pulse"></div>
-                  <div className="w-2 h-2 rounded-full bg-secondary"></div>
-                </div>
-                <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">AI Engine Active</span>
-              </div>
-            </div>
-            
-            <button className="w-full sm:w-auto bg-gradient-to-br from-primary to-on-primary-container text-on-primary px-12 py-5 rounded-full font-headline font-extrabold tracking-tight active:scale-95 hover:brightness-110 transition-all flex items-center justify-center gap-3 shadow-xl shadow-primary/10">
-              Scan Now
-              <Rocket size={20} fill="currentColor" />
-            </button>
-          </div>
-        </div>
+      <View style={[styles.grid, isDesktop && styles.gridDesktop]}>
+        <View style={[styles.mainCard, isMobile && styles.mainCardMobile, isDesktop && styles.mainCardDesktop]}>
+          <View style={styles.backgroundIcon}>
+            <SearchCode color="rgba(225,226,235,0.08)" size={120} />
+          </View>
+          <Text style={styles.eyebrow}>Security Ingestion Interface</Text>
+          <ManualScan />
+        </View>
 
-        {/* Diagnostics Sidebar */}
-        <div className="lg:col-span-4 flex flex-col gap-8">
-          <div className="bg-surface-container-highest/40 rounded-[3rem] p-10 glass-effect border border-outline-variant/10">
-            <h3 className="font-headline font-bold text-2xl text-primary mb-8 tracking-tight">Live Diagnostics</h3>
-            
-            <div className="space-y-8">
+        <View style={[styles.sideColumn, isDesktop && styles.sideColumnDesktop]}>
+          <View style={styles.sideCard}>
+            <Text style={[styles.sideTitle, isMobile && styles.sideTitleMobile]}>Live Diagnostics</Text>
+            <View style={styles.diagnosticsList}>
               {[
-                { label: 'URL Reputation', sub: 'Cross-referencing 4.2M blacklists', icon: CheckCircle2, color: 'text-secondary', active: true },
-                { label: 'Linguistic Triage', sub: 'Checking for deceptive language...', icon: RefreshCw, color: 'text-secondary', active: true, spin: true },
-                { label: 'Header Forensic', sub: 'Awaiting input completion', icon: Hourglass, color: 'text-on-primary-container/30', active: false },
-              ].map((item, i) => (
-                <div key={i} className={`flex items-start gap-5 ${!item.active && 'opacity-50'}`}>
-                  <div className="mt-1">
-                    <item.icon className={`${item.color} ${item.spin && 'animate-spin'}`} size={20} />
-                  </div>
-                  <div>
-                    <p className="text-base font-bold text-on-surface">{item.label}</p>
-                    <p className="text-xs text-on-primary-container mt-1">{item.sub}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                {
+                  label: 'Detector API',
+                  sub: phishingApiStatusLabel,
+                  icon: phishingApiConfigured ? CheckCircle2 : CloudOff,
+                  color: phishingApiConfigured ? palette.secondary : palette.error,
+                },
+                {
+                  label: 'Local Intelligence',
+                  sub: 'Always active for on-device threat scoring and explainability',
+                  icon: CheckCircle2,
+                  color: palette.secondary,
+                },
+                {
+                  label: 'Gemini Copilot',
+                  sub: geminiConfigured ? 'Available as a copilot for URL scans and escalated email reviews' : 'No Gemini key detected for this session',
+                  icon: geminiConfigured ? RefreshCw : CloudOff,
+                  color: geminiConfigured ? palette.secondary : palette.primaryMuted,
+                },
+                {
+                  label: 'Recent Source',
+                  sub: recentSource,
+                  icon: BarChart3,
+                  color: palette.primaryMuted,
+                },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <View key={item.label} style={styles.diagnosticRow}>
+                    <Icon color={item.color} size={18} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.diagnosticTitle}>{item.label}</Text>
+                      <Text style={styles.diagnosticBody}>{item.sub}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
 
-            {/* Pulse Visualization */}
-            <div className="mt-12 h-32 flex items-center justify-center relative">
-              <div className="absolute inset-0 bg-secondary/5 blur-[40px] rounded-full animate-pulse"></div>
-              <div className="flex items-end gap-1.5 h-16">
-                {[4, 8, 12, 6, 10, 5, 9, 7, 11, 4].map((h, i) => (
-                  <motion.div 
-                    key={i}
-                    animate={{ height: [h*4, h*6, h*4] }}
-                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.1 }}
-                    className="w-1.5 bg-secondary rounded-full"
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Metric Card */}
-          <div className="bg-surface-container-low rounded-[2.5rem] p-8 border border-outline-variant/5">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <BarChart3 size={14} className="text-on-primary-container" />
-                <span className="text-[10px] font-bold text-on-primary-container uppercase tracking-[0.2em]">Engine Latency</span>
-              </div>
-              <span className="text-secondary font-headline font-bold text-lg">14ms</span>
-            </div>
-            <div className="w-full bg-surface-container-highest h-1.5 rounded-full overflow-hidden">
-              <motion.div 
-                initial={{ width: 0 }}
-                animate={{ width: '85%' }}
-                className="bg-secondary h-full rounded-full shadow-[0_0_10px_rgba(74,225,131,0.3)]"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    </motion.div>
+          <View style={styles.metricCard}>
+            <View style={styles.metricHeader}>
+              <View style={styles.metricTitleRow}>
+                <BarChart3 color={palette.primaryMuted} size={14} />
+                <Text style={styles.metricLabel}>Blocked Findings</Text>
+              </View>
+              <Text style={styles.metricValue}>{blockedCount}</Text>
+            </View>
+            <View style={styles.metricTrack}>
+              <View style={[styles.metricFill, { width: `${events.length ? Math.max((blockedCount / events.length) * 100, 8) : 8}%` }]} />
+            </View>
+          </View>
+        </View>
+      </View>
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    gap: 24,
+    width: '100%',
+    maxWidth: 1320,
+    alignSelf: 'center',
+  },
+  title: {
+    color: palette.primary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 48,
+    lineHeight: 50,
+  },
+  titleMobile: {
+    fontSize: 34,
+    lineHeight: 38,
+  },
+  body: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 17,
+    lineHeight: 25,
+    marginTop: 12,
+    maxWidth: 620,
+  },
+  bodyMobile: {
+    fontSize: 15,
+    lineHeight: 22,
+    maxWidth: undefined,
+  },
+  grid: {
+    gap: 18,
+  },
+  gridDesktop: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  mainCard: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 36,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 24,
+    gap: 20,
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  mainCardDesktop: {
+    flex: 2,
+  },
+  mainCardMobile: {
+    borderRadius: 30,
+    padding: 20,
+    gap: 18,
+  },
+  backgroundIcon: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+  },
+  eyebrow: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  sideColumn: {
+    gap: 18,
+  },
+  sideColumnDesktop: {
+    flex: 1,
+  },
+  sideCard: {
+    backgroundColor: 'rgba(50,53,60,0.26)',
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 24,
+    gap: 18,
+    ...shadows.card,
+  },
+  sideTitle: {
+    color: palette.primary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 28,
+  },
+  sideTitleMobile: {
+    fontSize: 22,
+  },
+  diagnosticsList: {
+    gap: 18,
+  },
+  diagnosticRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  diagnosticTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 16,
+  },
+  diagnosticBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    marginTop: 4,
+    lineHeight: 19,
+  },
+  metricCard: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 20,
+    gap: 14,
+    ...shadows.card,
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  metricTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  metricLabel: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  metricValue: {
+    color: palette.secondary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 20,
+  },
+  metricTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(50,53,60,0.28)',
+    overflow: 'hidden',
+  },
+  metricFill: {
+    height: '100%',
+    backgroundColor: palette.secondary,
+    borderRadius: 999,
+  },
+});

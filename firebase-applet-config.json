@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0561227033",
-  "appId": "1:75518814362:web:ea3d9812eeffda63509723",
-  "apiKey": "AIzaSyD_iYINBhTPYo1p0qViC2gypdCtF8BEO_U",
-  "authDomain": "gen-lang-client-0561227033.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-6f89163f-84a0-4427-98a8-3b8e66996b19",
-  "storageBucket": "gen-lang-client-0561227033.firebasestorage.app",
-  "messagingSenderId": "75518814362",
-  "measurementId": ""
+  "projectId": "aegis-ai-guard",
+  "appId": "1:662641033139:web:de71b7a8c10657a31255c6",
+  "apiKey": "AIzaSyBKEghyh3CaoWqeaTUnvk5UIAn8eP8dUb4",
+  "authDomain": "aegis-ai-guard.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "aegis-ai-guard.firebasestorage.app",
+  "messagingSenderId": "662641033139",
+  "measurementId": "G-Q624T6H2WS"
 }

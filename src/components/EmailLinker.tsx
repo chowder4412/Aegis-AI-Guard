@@ -1,202 +1,540 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Mail, Shield, CheckCircle2, Loader2, AlertCircle, Zap, Bot, Lock, Trash2, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Google from 'expo-auth-session/providers/google';
+import { Bot, Lock, Mail, RefreshCw, Shield, Trash2 } from 'lucide-react-native';
+import { useAuth } from '../context/AuthContext';
 import { useLinkedEmails } from '../context/LinkedEmailsContext';
+import { useResponsive } from '../hooks/useResponsive';
+import { storeBackendGmailMailboxSession } from '../services/backendMailboxService';
+import { GMAIL_SCOPES, saveGmailMailboxSession } from '../services/gmailSyncService';
+import { GOOGLE_ANDROID_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from '../services/googleAuthService';
+import { fonts, palette, shadows } from '../theme';
 
-export const EmailLinker: React.FC = () => {
-  const { linkedEmails, addEmail, linkRealEmail, removeEmail, retryEmail } = useLinkedEmails();
+export const EmailLinker = () => {
+  const { isTablet } = useResponsive();
+  const isMobile = !isTablet;
+  const { user } = useAuth();
+  const { linkedEmails, completeOAuthLink, linkRealEmail, removeEmail, retryEmail, loading, oauthMessage, oauthStatus, clearOAuthMessage } =
+    useLinkedEmails();
   const [status, setStatus] = useState<'idle' | 'linking' | 'error'>('idle');
-  const [email, setEmail] = useState('');
+  const oauthLinkedEmails = useMemo(() => linkedEmails.filter((item) => item.provider === 'gmail-oauth'), [linkedEmails]);
+  const [gmailRequest, gmailResponse, promptGmailAsync] = Google.useAuthRequest({
+    clientId: GOOGLE_WEB_CLIENT_ID,
+    iosClientId: GOOGLE_IOS_CLIENT_ID,
+    androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    scopes: GMAIL_SCOPES,
+    selectAccount: true,
+    shouldAutoExchangeCode: true,
+    extraParams:
+      Platform.OS === 'web'
+        ? undefined
+        : {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+  });
 
-  const handleLinkReal = async () => {
-    setStatus('linking');
-    await linkRealEmail();
-    setStatus('idle');
-  };
-
-  const handleLink = async () => {
-    if (!email || !email.includes('@')) {
-      setStatus('error');
+  useEffect(() => {
+    if (!oauthMessage) {
       return;
     }
 
-    if (linkedEmails.some(e => e.email === email)) {
-      setStatus('error');
-      return;
-    }
-    
+    const timer = setTimeout(() => {
+      clearOAuthMessage();
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [clearOAuthMessage, oauthMessage]);
+
+  useEffect(() => {
+    const completeNativeGmailLink = async () => {
+      if (!gmailResponse || !user) {
+        return;
+      }
+
+      if (gmailResponse.type !== 'success') {
+        if (gmailResponse.type === 'error') {
+          setStatus('error');
+          Alert.alert('Gmail connection failed', 'Google could not complete mailbox authorization.');
+        } else {
+          setStatus('idle');
+        }
+        return;
+      }
+
+      const authentication = gmailResponse.authentication;
+      if (!authentication?.accessToken) {
+        setStatus('error');
+        Alert.alert('Gmail connection failed', 'Google did not return a Gmail access token.');
+        return;
+      }
+
+      try {
+        const session = await saveGmailMailboxSession(user.uid, authentication);
+        await storeBackendGmailMailboxSession({
+          email: session.email,
+          access_token: session.session.accessToken,
+          refresh_token: session.session.refreshToken,
+          id_token: session.session.idToken,
+          issued_at: session.session.issuedAt,
+          expires_in: session.session.expiresIn,
+          scope: session.session.scope,
+          token_type: session.session.tokenType,
+        });
+        await completeOAuthLink(session.email);
+        setStatus('idle');
+      } catch (error) {
+        setStatus('error');
+        const message = error instanceof Error ? error.message : 'Gmail authorization completed, but the mailbox could not be linked.';
+        Alert.alert('Gmail connection failed', message);
+      }
+    };
+
+    void completeNativeGmailLink();
+  }, [completeOAuthLink, gmailResponse, user]);
+
+  const handleOAuthLink = async () => {
     setStatus('linking');
-    await addEmail(email);
-    setStatus('idle');
-    setEmail('');
+    try {
+      if (Platform.OS === 'web') {
+        const startUrl = await linkRealEmail();
+        if (!startUrl) {
+          throw new Error('A Gmail OAuth connector is not configured for this deployment yet.');
+        }
+
+        if (typeof window !== 'undefined' && typeof window.location?.assign === 'function') {
+          window.location.assign(startUrl);
+          return;
+        }
+
+        await Linking.openURL(startUrl);
+        return;
+      }
+
+      if (!gmailRequest) {
+        Alert.alert('Gmail unavailable', 'The Google Gmail authorization request is not ready yet.');
+        return;
+      }
+
+      await promptGmailAsync({
+        showInRecents: true,
+      });
+    } catch (error) {
+      setStatus('error');
+      const message = error instanceof Error ? error.message : 'Gmail authorization could not be started.';
+      Alert.alert('Gmail connection failed', message);
+    }
   };
 
   return (
-    <div className="bg-surface-container-low rounded-[2.5rem] p-8 border border-outline-variant/10 shadow-xl relative overflow-hidden group">
-      {/* Background Glow */}
-      <div className="absolute -top-24 -right-24 w-64 h-64 bg-primary/5 blur-[100px] rounded-full group-hover:bg-primary/10 transition-colors duration-700"></div>
-      
-      <div className="relative z-10">
-        <div className="flex items-center gap-3 mb-6">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 ${
-            linkedEmails.length > 0 ? 'bg-emerald-500/20 text-emerald-500 rotate-[360deg]' : 'bg-primary/10 text-primary'
-          }`}>
-            {linkedEmails.length > 0 ? <Bot size={24} /> : <Mail size={24} />}
-          </div>
-          <div>
-            <h3 className="text-xl font-bold font-headline tracking-tight">Email Protection Bot</h3>
-            <p className="text-[10px] text-on-primary-container font-bold uppercase tracking-widest opacity-60">Real-time Inbox Synchronization</p>
-          </div>
-        </div>
+    <View style={[styles.card, isMobile && styles.cardMobile]}>
+      <View style={styles.headerRow}>
+        <View style={[styles.iconWrap, isMobile && styles.iconWrapMobile, linkedEmails.length > 0 && styles.iconWrapActive]}>
+          {linkedEmails.length > 0 ? <Bot color={palette.success} size={24} /> : <Mail color={palette.primary} size={24} />}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.title, isMobile && styles.titleMobile]}>Email Protection Bot</Text>
+          <Text style={styles.eyebrow}>Real-time inbox synchronization</Text>
+        </View>
+      </View>
 
-        <AnimatePresence mode="wait">
-          {status === 'idle' || status === 'error' ? (
-            <motion.div
-              key="idle"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-6"
-            >
-              <p className="text-sm text-on-primary-container leading-relaxed">
-                Connect your email accounts to enable the AI Protection Bot. It will monitor your inboxes in real-time and automatically red-flag suspicious communications.
-              </p>
-              
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
-                  <input
-                    type="email"
-                    placeholder="Enter your email address"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className={`w-full bg-surface-container-highest/50 border ${status === 'error' ? 'border-error' : 'border-outline-variant/20'} rounded-2xl px-5 py-4 text-sm focus:outline-none focus:border-primary/50 transition-all`}
-                  />
-                  {status === 'error' && (
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-error">
-                      <AlertCircle size={18} />
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={handleLink}
-                  className="premium-gradient text-on-primary font-bold px-8 py-4 rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-primary/20"
-                >
-                  <Zap size={18} fill="currentColor" />
-                  Link Account
-                </button>
-              </div>
+      {status === 'linking' ? (
+        <View style={styles.loadingState}>
+          <ActivityIndicator color={palette.primary} size="large" />
+          <Text style={styles.loadingTitle}>Establishing secure link</Text>
+          <Text style={styles.loadingBody}>Synchronizing protected inbox signals...</Text>
+        </View>
+      ) : (
+        <>
+          <Text style={[styles.description, isMobile && styles.descriptionMobile]}>
+            Connect Gmail with native Google consent so the app can run pre-delivery threat shielding: inspect attached links, score legitimacy, and alert you on potential scams before interaction.
+          </Text>
 
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-outline-variant/10"></div>
-                </div>
-                <div className="relative flex justify-center text-[8px] font-bold uppercase tracking-widest">
-                  <span className="bg-surface-container-low px-2 text-on-primary-container opacity-30">or secure connection</span>
-                </div>
-              </div>
+          <Pressable
+            disabled={Platform.OS !== 'web' && !gmailRequest}
+            onPress={handleOAuthLink}
+            style={({ pressed }) => [
+              styles.oauthButton,
+              isMobile && styles.oauthButtonMobile,
+              Platform.OS !== 'web' && !gmailRequest && styles.oauthButtonDisabled,
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={styles.googleBadge}>
+              <Text style={styles.googleBadgeText}>G</Text>
+            </View>
+            <Text style={styles.oauthButtonText}>
+              {Platform.OS === 'web' || gmailRequest ? 'Connect Gmail Securely' : 'Google Auth Unavailable'}
+            </Text>
+          </Pressable>
 
-              <button
-                onClick={handleLinkReal}
-                className="w-full py-4 bg-surface-container-highest text-on-surface rounded-2xl font-bold text-sm hover:bg-surface-container-high transition-all flex items-center justify-center gap-3 border border-outline-variant/10"
-              >
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg" alt="Google" className="w-5 h-5 bg-white rounded-full p-1" />
-                Connect Real Gmail (OAuth)
-              </button>
+          <Text style={styles.oauthHint}>
+            Gmail linking authenticates the mailbox, stores the Gmail session for secure sync, and unlocks actual inbox scanning plus automatic pre-delivery link inspection. Manual mailbox watchlists have been removed from the app.
+          </Text>
 
-              {/* Linked Emails List */}
-              {linkedEmails.length > 0 && (
-                <div className="space-y-3 pt-2">
-                  <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Linked Accounts</h4>
-                  <div className="space-y-2">
-                    {linkedEmails.map((linked) => (
-                      <motion.div 
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        key={linked.email} 
-                        className="bg-surface-container-highest/30 p-4 rounded-2xl border border-outline-variant/5 flex items-center justify-between group/item"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full ${
-                            linked.status === 'active' ? 'bg-emerald-500 animate-pulse' : 
-                            linked.status === 'error' ? 'bg-error' : 
-                            'bg-primary animate-spin'
-                          }`}></div>
-                          <div>
-                            <span className="text-xs font-bold font-mono truncate block max-w-[150px] sm:max-w-none">{linked.email}</span>
-                            <div className="flex flex-col">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-[8px] font-bold uppercase tracking-widest block ${
-                                  linked.status === 'error' ? 'text-error font-black' : 'opacity-50'
-                                }`}>
-                                  {linked.status === 'active' ? 'Active' : 
-                                   linked.status === 'error' ? 'Connection Error' : 
-                                   'Syncing...'}
-                                </span>
-                                {linked.status === 'error' && (
-                                  <button 
-                                    onClick={() => retryEmail(linked.email)}
-                                    className="text-[8px] font-bold uppercase tracking-widest text-primary hover:underline flex items-center gap-1"
-                                  >
-                                    <RefreshCw size={8} />
-                                    Retry
-                                  </button>
-                                )}
-                              </div>
-                              {linked.lastSyncedAt && linked.status === 'active' && (
-                                <span className="text-[7px] text-on-primary-container/40 font-medium uppercase tracking-tighter">
-                                  Last Synced: {new Date(linked.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => removeEmail(linked.email)}
-                          className="p-2 text-on-primary-container/40 hover:text-error hover:bg-error/10 rounded-lg transition-all opacity-0 group-hover/item:opacity-100"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <div className="flex items-center gap-4 pt-2">
-                <div className="flex items-center gap-1.5 text-[9px] font-bold text-on-primary-container uppercase tracking-widest opacity-50">
-                  <Shield size={12} />
-                  <span>OAuth 2.0 Secure</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[9px] font-bold text-on-primary-container uppercase tracking-widest opacity-50">
-                  <Lock size={12} />
-                  <span>End-to-End Encrypted</span>
-                </div>
-              </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="linking"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.05 }}
-              className="py-10 flex flex-col items-center justify-center text-center space-y-4"
-            >
-              <div className="relative">
-                <Loader2 className="text-primary animate-spin" size={48} />
-                <motion.div 
-                  animate={{ opacity: [0.3, 1, 0.3] }}
-                  transition={{ duration: 1.5, repeat: Infinity }}
-                  className="absolute inset-0 bg-primary/20 blur-xl rounded-full"
-                />
-              </div>
-              <div>
-                <h4 className="font-bold text-lg">Establishing Secure Link</h4>
-                <p className="text-xs text-on-primary-container opacity-60">Synchronizing with {email}...</p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
+          {oauthMessage ? (
+            <View style={[styles.oauthStatusCard, oauthStatus === 'success' ? styles.oauthStatusSuccess : oauthStatus === 'error' ? styles.oauthStatusError : styles.oauthStatusProcessing]}>
+              <Text style={styles.oauthStatusText}>{oauthMessage}</Text>
+            </View>
+          ) : null}
+
+          {loading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator color={palette.primary} size="small" />
+              <Text style={styles.loadingBody}>Loading linked mailbox records...</Text>
+            </View>
+          ) : oauthLinkedEmails.length > 0 ? (
+            <View style={styles.linkedList}>
+              <Text style={styles.linkedTitle}>Linked Accounts</Text>
+              {oauthLinkedEmails.map((linked) => (
+                <View key={linked.email} style={styles.linkedItem}>
+                  <View style={styles.linkedMeta}>
+                    <View
+                      style={[
+                        styles.statusDot,
+                        linked.status === 'active' && styles.statusActive,
+                        linked.status === 'syncing' && styles.statusSyncing,
+                        linked.status === 'error' && styles.statusError,
+                      ]}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.linkedEmail}>{linked.email}</Text>
+                      <View style={styles.linkedStateRow}>
+                        <Text style={[styles.linkedState, linked.status === 'error' && { color: palette.error }]}>
+                          {linked.status === 'active'
+                            ? 'Active'
+                            : linked.status === 'syncing'
+                              ? 'Syncing...'
+                              : 'Connection Error'}
+                        </Text>
+                        {linked.status === 'error' ? (
+                          <Pressable onPress={() => void retryEmail(linked.email)} style={styles.retryButton}>
+                            <RefreshCw color={palette.primary} size={10} />
+                            <Text style={styles.retryText}>Reconnect</Text>
+                          </Pressable>
+                        ) : null}
+                        <Text style={styles.providerBadge}>Gmail Connected</Text>
+                      </View>
+                      {linked.lastSyncedAt ? (
+                        <Text style={styles.syncedText}>
+                          Last synced {new Date(linked.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      ) : null}
+                      <View style={styles.mailboxMetaWrap}>
+                        {linked.health ? (
+                          <Text style={styles.mailboxMetaText}>
+                            Health: {linked.health === 'healthy' ? 'Healthy' : linked.health === 'watch' ? 'Heightened Watch' : 'Degraded'}
+                          </Text>
+                        ) : null}
+                        {linked.nextScheduledScanAt ? (
+                          <Text style={styles.mailboxMetaText}>
+                            Next sweep {new Date(linked.nextScheduledScanAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        ) : null}
+                        {typeof linked.lastScannedCount === 'number' ? (
+                          <Text style={styles.mailboxMetaText}>
+                            Last pass: {linked.lastScannedCount} message{linked.lastScannedCount === 1 ? '' : 's'}
+                            {typeof linked.lastAlertCount === 'number' ? `, ${linked.lastAlertCount} alert${linked.lastAlertCount === 1 ? '' : 's'}` : ''}
+                          </Text>
+                        ) : null}
+                        {linked.topSignals?.[0] ? <Text style={styles.mailboxMetaText}>Signal: {linked.topSignals[0]}</Text> : null}
+                        {linked.lastError ? <Text style={[styles.mailboxMetaText, styles.mailboxMetaError]}>{linked.lastError}</Text> : null}
+                      </View>
+                    </View>
+                  </View>
+
+                  <Pressable onPress={() => void removeEmail(linked.email)} style={({ pressed }) => [styles.trashButton, pressed && styles.pressed]}>
+                    <Trash2 color={palette.primaryMuted} size={14} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={styles.footerRow}>
+            <View style={styles.footerBadge}>
+              <Shield color={palette.primaryMuted} size={12} />
+              <Text style={styles.footerBadgeText}>OAuth 2.0 Secure</Text>
+            </View>
+            <View style={styles.footerBadge}>
+              <Lock color={palette.primaryMuted} size={12} />
+              <Text style={styles.footerBadgeText}>Encrypted Sync</Text>
+            </View>
+          </View>
+        </>
+      )}
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.38)',
+    padding: 24,
+    gap: 18,
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  cardMobile: {
+    borderRadius: 28,
+    padding: 20,
+    gap: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  iconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 20,
+    backgroundColor: 'rgba(187,198,226,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconWrapMobile: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+  },
+  iconWrapActive: {
+    backgroundColor: 'rgba(39,198,122,0.16)',
+  },
+  title: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 22,
+  },
+  titleMobile: {
+    fontSize: 18,
+  },
+  eyebrow: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 2,
+    marginTop: 4,
+    textTransform: 'uppercase',
+  },
+  description: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  descriptionMobile: {
+    lineHeight: 21,
+  },
+  oauthButton: {
+    borderRadius: 18,
+    backgroundColor: palette.surfaceHighest,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.45)',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  oauthButtonMobile: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  oauthButtonText: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+  },
+  oauthButtonDisabled: {
+    opacity: 0.5,
+  },
+  oauthHint: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  oauthStatusCard: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+  },
+  oauthStatusSuccess: {
+    backgroundColor: 'rgba(39,198,122,0.1)',
+    borderColor: 'rgba(39,198,122,0.28)',
+  },
+  oauthStatusError: {
+    backgroundColor: 'rgba(255,92,82,0.1)',
+    borderColor: 'rgba(255,92,82,0.28)',
+  },
+  oauthStatusProcessing: {
+    backgroundColor: 'rgba(187,198,226,0.08)',
+    borderColor: 'rgba(187,198,226,0.2)',
+  },
+  oauthStatusText: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  googleBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  googleBadgeText: {
+    color: '#4285F4',
+    fontFamily: fonts.headlineBold,
+    fontSize: 14,
+  },
+  linkedList: {
+    gap: 10,
+  },
+  linkedTitle: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  linkedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 16,
+    borderRadius: 20,
+    backgroundColor: 'rgba(50,53,60,0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.25)',
+  },
+  linkedMeta: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 6,
+    backgroundColor: palette.primaryMuted,
+  },
+  statusActive: {
+    backgroundColor: palette.success,
+  },
+  statusSyncing: {
+    backgroundColor: palette.primary,
+  },
+  statusError: {
+    backgroundColor: palette.error,
+  },
+  linkedEmail: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+  },
+  linkedStateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 4,
+  },
+  linkedState: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 9,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  syncedText: {
+    color: 'rgba(196,198,204,0.42)',
+    fontFamily: fonts.body,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  mailboxMetaWrap: {
+    gap: 4,
+    marginTop: 6,
+  },
+  mailboxMetaText: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  mailboxMetaError: {
+    color: palette.error,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  retryText: {
+    color: palette.primary,
+    fontFamily: fonts.headline,
+    fontSize: 9,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+  },
+  providerBadge: {
+    color: palette.secondary,
+    fontFamily: fonts.headline,
+    fontSize: 9,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+  },
+  trashButton: {
+    padding: 8,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  footerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  footerBadgeText: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 9,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  loadingState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    gap: 10,
+  },
+  loadingTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 20,
+  },
+  loadingBody: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+  },
+  pressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.985 }],
+  },
+});

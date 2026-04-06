@@ -1,0 +1,76 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "cleanUrls": true,
+    "rewrites": [
+      {
+        "source": "/health",
+        "run": {
+          "serviceId": "aegis-backend",
+          "region": "us-central1",
+          "pinTag": true
+        }
+      },
+      {
+        "source": "/readiness",
+        "run": {
+          "serviceId": "aegis-backend",
+          "region": "us-central1",
+          "pinTag": true
+        }
+      },
+      {
+        "source": "/metrics",
+        "run": {
+          "serviceId": "aegis-backend",
+          "region": "us-central1",
+          "pinTag": true
+        }
+      },
+      {
+        "source": "/detect",
+        "run": {
+          "serviceId": "aegis-backend",
+          "region": "us-central1",
+          "pinTag": true
+        }
+      },
+      {
+        "source": "/oauth/**",
+        "run": {
+          "serviceId": "aegis-backend",
+          "region": "us-central1",
+          "pinTag": true
+        }
+      },
+      {
+        "source": "/mailboxes/**",
+        "run": {
+          "serviceId": "aegis-backend",
+          "region": "us-central1",
+          "pinTag": true
+        }
+      },
+      {
+        "source": "/sandbox/**",
+        "run": {
+          "serviceId": "aegis-backend",
+          "region": "us-central1",
+          "pinTag": true
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

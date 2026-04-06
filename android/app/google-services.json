@@ -1,0 +1,46 @@
+﻿{
+  "project_info": {
+    "project_number": "662641033139",
+    "project_id": "aegis-ai-guard",
+    "storage_bucket": "aegis-ai-guard.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:662641033139:android:be031f48bde14e411255c6",
+        "android_client_info": {
+          "package_name": "com.aegis.aiguard"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "662641033139-5vs6pp0gcal7bnbqlfo82u56r20h26oq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhG_Qqs5D7W1ntslg3Ht8pPCpqpKqLKqc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "662641033139-5vs6pp0gcal7bnbqlfo82u56r20h26oq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "662641033139-ho508okt1iah75gshbt1jr332fnkjmu7.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.aegis.aiguard"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

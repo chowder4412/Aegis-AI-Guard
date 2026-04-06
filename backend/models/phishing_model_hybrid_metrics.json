@@ -1,0 +1,198 @@
+{
+  "dataset": "C:\\Users\\user\\Desktop\\Aegis-Ai-Guard\\backend\\data\\processed\\phishing_training_dataset.csv",
+  "train_rows": 58676,
+  "validation_rows": 10355,
+  "test_rows": 17258,
+  "model": "HybridPhishingModel(LogisticRegression balanced + TF-IDF + engineered features)",
+  "artifact": "C:\\Users\\user\\Desktop\\Aegis-Ai-Guard\\backend\\models\\phishing_model_hybrid.pkl",
+  "recommended_threshold": 0.6,
+  "validation_metrics_at_recommended_threshold": {
+    "threshold": 0.6,
+    "accuracy": 0.9923708353452438,
+    "phishing_precision": 0.7491408934707904,
+    "phishing_recall": 0.9732142857142857,
+    "phishing_f1": 0.8466019417475729,
+    "confusion_matrix": [
+      [
+        10058,
+        73
+      ],
+      [
+        6,
+        218
+      ]
+    ]
+  },
+  "threshold_sweep_on_validation": [
+    {
+      "threshold": 0.2,
+      "accuracy": 0.9752776436504105,
+      "phishing_precision": 0.46624472573839665,
+      "phishing_recall": 0.9866071428571429,
+      "phishing_f1": 0.6332378223495702,
+      "confusion_matrix": [
+        [
+          9878,
+          253
+        ],
+        [
+          3,
+          221
+        ]
+      ]
+    },
+    {
+      "threshold": 0.25,
+      "accuracy": 0.9808788025108643,
+      "phishing_precision": 0.53125,
+      "phishing_recall": 0.9866071428571429,
+      "phishing_f1": 0.690625,
+      "confusion_matrix": [
+        [
+          9936,
+          195
+        ],
+        [
+          3,
+          221
+        ]
+      ]
+    },
+    {
+      "threshold": 0.3,
+      "accuracy": 0.9853211009174312,
+      "phishing_precision": 0.5978260869565217,
+      "phishing_recall": 0.9821428571428571,
+      "phishing_f1": 0.7432432432432432,
+      "confusion_matrix": [
+        [
+          9983,
+          148
+        ],
+        [
+          4,
+          220
+        ]
+      ]
+    },
+    {
+      "threshold": 0.35,
+      "accuracy": 0.9871559633027523,
+      "phishing_precision": 0.6303724928366762,
+      "phishing_recall": 0.9821428571428571,
+      "phishing_f1": 0.7678883071553229,
+      "confusion_matrix": [
+        [
+          10002,
+          129
+        ],
+        [
+          4,
+          220
+        ]
+      ]
+    },
+    {
+      "threshold": 0.4,
+      "accuracy": 0.9892805408015451,
+      "phishing_precision": 0.672782874617737,
+      "phishing_recall": 0.9821428571428571,
+      "phishing_f1": 0.7985480943738656,
+      "confusion_matrix": [
+        [
+          10024,
+          107
+        ],
+        [
+          4,
+          220
+        ]
+      ]
+    },
+    {
+      "threshold": 0.45,
+      "accuracy": 0.9905359729599228,
+      "phishing_precision": 0.7006369426751592,
+      "phishing_recall": 0.9821428571428571,
+      "phishing_f1": 0.8178438661710037,
+      "confusion_matrix": [
+        [
+          10037,
+          94
+        ],
+        [
+          4,
+          220
+        ]
+      ]
+    },
+    {
+      "threshold": 0.5,
+      "accuracy": 0.9912119748913568,
+      "phishing_precision": 0.7166123778501629,
+      "phishing_recall": 0.9821428571428571,
+      "phishing_f1": 0.8286252354048964,
+      "confusion_matrix": [
+        [
+          10044,
+          87
+        ],
+        [
+          4,
+          220
+        ]
+      ]
+    },
+    {
+      "threshold": 0.55,
+      "accuracy": 0.991887976822791,
+      "phishing_precision": 0.7333333333333333,
+      "phishing_recall": 0.9821428571428571,
+      "phishing_f1": 0.8396946564885496,
+      "confusion_matrix": [
+        [
+          10051,
+          80
+        ],
+        [
+          4,
+          220
+        ]
+      ]
+    },
+    {
+      "threshold": 0.6,
+      "accuracy": 0.9923708353452438,
+      "phishing_precision": 0.7491408934707904,
+      "phishing_recall": 0.9732142857142857,
+      "phishing_f1": 0.8466019417475729,
+      "confusion_matrix": [
+        [
+          10058,
+          73
+        ],
+        [
+          6,
+          218
+        ]
+      ]
+    }
+  ],
+  "test_metrics_at_recommended_threshold": {
+    "threshold": 0.6,
+    "accuracy": 0.9930467029783289,
+    "phishing_precision": 0.7720430107526882,
+    "phishing_recall": 0.9624664879356568,
+    "phishing_f1": 0.8568019093078759,
+    "confusion_matrix": [
+      [
+        16779,
+        106
+      ],
+      [
+        14,
+        359
+      ]
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+services:
+  aegis-backend-sandbox:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile.sandbox
+    container_name: aegis-backend-sandbox
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    volumes:
+      - ./models:/app/backend/models:ro

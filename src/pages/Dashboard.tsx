@@ -1,204 +1,713 @@
-import React from 'react';
-import { UserCheck, Shield, Bolt, AtSign, Globe, ShieldAlert, ArrowRight, Link2Off, Mail, Paperclip, TrendingUp, TrendingDown } from 'lucide-react';
-import { motion } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Activity, AtSign, Bolt, Mail, Shield, ShieldAlert, UserCheck } from 'lucide-react-native';
 import { EmailLinker } from '../components/EmailLinker';
-import { useLinkedEmails } from '../context/LinkedEmailsContext';
-import { ThreatFeed } from '../components/ThreatFeed';
-
 import { ManualScan } from '../components/ManualScan';
 import { ThreatAnalytics } from '../components/ThreatAnalytics';
+import { ThreatFeed } from '../components/ThreatFeed';
+import { useAuth } from '../context/AuthContext';
+import { useLinkedEmails } from '../context/LinkedEmailsContext';
+import { useResponsive } from '../hooks/useResponsive';
+import { getDefaultPreferences, subscribeToScanEvents, subscribeToThreats, subscribeToUserPreferences } from '../services/securityDataService';
+import type { ScanEvent, Threat, UserPreferences } from '../types';
+import { fonts, palette, shadows } from '../theme';
 
-export const Dashboard: React.FC = () => {
-  const { isAnyEmailLinked } = useLinkedEmails();
+const countUniqueDays = (items: ScanEvent[]) => new Set(items.map((item) => item.createdAt.slice(0, 10))).size;
+
+export const Dashboard = () => {
+  const { isDesktop, isTablet } = useResponsive();
+  const isMobile = !isTablet;
+  const { user } = useAuth();
+  const { isAnyEmailLinked, linkedEmails, loading: linkedEmailsLoading, scanLinkedMailboxes } = useLinkedEmails();
+  const [scanEvents, setScanEvents] = useState<ScanEvent[]>([]);
+  const [threats, setThreats] = useState<Threat[]>([]);
+  const [preferences, setPreferences] = useState<UserPreferences>(getDefaultPreferences());
+  const [loading, setLoading] = useState(true);
+  const [isMailboxScanning, setIsMailboxScanning] = useState(false);
+  const [hasTriggeredMailboxScan, setHasTriggeredMailboxScan] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setScanEvents([]);
+      setThreats([]);
+      setPreferences(getDefaultPreferences());
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const unsubscribeThreats = subscribeToThreats(
+      user.uid,
+      (items) => {
+        setThreats(items);
+        setLoading(false);
+      },
+      () => {
+        setThreats([]);
+        setLoading(false);
+      },
+      50,
+    );
+    const unsubscribeScans = subscribeToScanEvents(user.uid, setScanEvents, () => setScanEvents([]), 100);
+    const unsubscribePreferences = subscribeToUserPreferences(user.uid, setPreferences);
+
+    return () => {
+      unsubscribeThreats();
+      unsubscribeScans();
+      unsubscribePreferences();
+    };
+  }, [user]);
+
+  const stats = useMemo(() => {
+    const blockedCount = scanEvents.filter((item) => item.action === 'Blocked').length;
+    const averageConfidence = scanEvents.length
+      ? Math.round(scanEvents.reduce((total, item) => total + item.confidence, 0) / scanEvents.length)
+      : 0;
+    const protectedDays = countUniqueDays(scanEvents);
+
+    return [
+      { label: 'Scans Processed', value: scanEvents.length.toString(), sub: 'Recorded' },
+      { label: 'Blocked Detections', value: blockedCount.toString(), sub: scanEvents.length ? `${Math.round((blockedCount / scanEvents.length) * 100)}% rate` : '0% rate' },
+      { label: 'Average Confidence', value: averageConfidence ? `${averageConfidence}%` : '0%', sub: protectedDays ? `${protectedDays} active days` : 'No activity' },
+    ];
+  }, [scanEvents]);
+
+  const recentThreats = threats.slice(0, 3);
+  const hasMailboxScanRecord = useMemo(
+    () =>
+      scanEvents.some(
+        (item) =>
+          item.inputType === 'email' &&
+          (item.inputPreview.toLowerCase().includes('mailbox scan') || item.analysisSourceLabel === 'Mailbox Threat Shield'),
+      ),
+    [scanEvents],
+  );
+  const realtimeMailboxCount = useMemo(
+    () => linkedEmails.filter((item) => item.provider === 'gmail-oauth' && item.status !== 'error').length,
+    [linkedEmails],
+  );
+  const hasCompletedRealtimeScan = useMemo(
+    () =>
+      linkedEmails.some((item) => item.provider === 'gmail-oauth' && item.status !== 'error' && item.hasCompletedInitialScan),
+    [linkedEmails],
+  );
+  const mailboxHealthLabel = useMemo(() => {
+    const realtimeMailboxes = linkedEmails.filter((item) => item.provider === 'gmail-oauth');
+    if (realtimeMailboxes.some((item) => item.health === 'degraded' || item.status === 'error')) {
+      return 'Degraded';
+    }
+    if (realtimeMailboxes.some((item) => item.health === 'watch' || (item.lastAlertCount || 0) > 0)) {
+      return 'Heightened Watch';
+    }
+    return realtimeMailboxes.length > 0 ? 'Healthy' : 'No mailbox linked';
+  }, [linkedEmails]);
+  const nextScheduledScanLabel = useMemo(() => {
+    const nextTimes = linkedEmails
+      .filter((item) => item.provider === 'gmail-oauth' && item.nextScheduledScanAt)
+      .map((item) => Date.parse(item.nextScheduledScanAt!))
+      .filter((value) => !Number.isNaN(value))
+      .sort((left, right) => left - right);
+
+    if (nextTimes.length === 0) {
+      return realtimeMailboxCount > 0 ? 'Ready now' : 'Connect Gmail';
+    }
+
+    return new Date(nextTimes[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, [linkedEmails, realtimeMailboxCount]);
+  const activeSignalSummary = useMemo(() => {
+    const topSignals = linkedEmails
+      .filter((item) => item.provider === 'gmail-oauth')
+      .flatMap((item) => item.topSignals || [])
+      .filter(Boolean);
+    return topSignals[0] || 'No high-risk mailbox signals recorded in the latest cycle.';
+  }, [linkedEmails]);
+
+  useEffect(() => {
+    if (hasCompletedRealtimeScan || hasMailboxScanRecord) {
+      setHasTriggeredMailboxScan(true);
+      return;
+    }
+
+    if (realtimeMailboxCount === 0) {
+      setHasTriggeredMailboxScan(false);
+    }
+  }, [hasCompletedRealtimeScan, hasMailboxScanRecord, realtimeMailboxCount]);
+
+  const protectionLine = useMemo(() => {
+    if (!scanEvents.length) {
+      return 'No completed scans yet';
+    }
+    return `${scanEvents.length} completed scans with ${threats.length} escalated threat record${threats.length === 1 ? '' : 's'}.`;
+  }, [scanEvents.length, threats.length]);
+
+  const heroBadgeLabel =
+    realtimeMailboxCount > 0
+      ? 'Protected Mailboxes Active'
+      : 'Core Guard Active';
+
+  const heroAccentColor =
+    mailboxHealthLabel === 'Degraded'
+      ? palette.error
+      : mailboxHealthLabel === 'Heightened Watch'
+        ? palette.secondary
+        : realtimeMailboxCount > 0
+          ? palette.success
+          : palette.secondary;
+  const heroBodyCopy =
+    realtimeMailboxCount > 0
+      ? 'This workspace is tied to authenticated Gmail mailbox records and persisted scan events. Threats, logs, and analytics are now driven from real inbox inspections.'
+      : 'The workspace is active, but no authenticated Gmail mailboxes are linked yet. Manual scans still produce real audit logs and threat records.';
+  const heroTitleAccent = realtimeMailboxCount > 0 ? 'protected.' : 'arming.';
+
+  const heroButtonLabel = isMailboxScanning
+    ? 'Scanning Emails...'
+    : realtimeMailboxCount > 0
+      ? hasTriggeredMailboxScan || hasCompletedRealtimeScan || hasMailboxScanRecord
+        ? 'Scan Emails'
+        : 'Ready for First Scan'
+      : 'Connect Gmail to Scan';
+
+  const handleMailboxScan = async () => {
+    if (realtimeMailboxCount === 0) {
+      Alert.alert('Realtime scan unavailable', 'Connect Gmail securely before running a live mailbox scan.');
+      return;
+    }
+
+    setIsMailboxScanning(true);
+    try {
+      const summary = await scanLinkedMailboxes();
+      setHasTriggeredMailboxScan(summary.scannedMailboxes > 0 || summary.scannedMessages >= 0);
+      Alert.alert(
+        summary.alertCount > 0 ? 'Threats detected' : 'Mailbox scan complete',
+        summary.alertCount > 0
+          ? `Threat shield detected ${summary.alertCount} suspicious email${summary.alertCount === 1 ? '' : 's'} while scanning ${summary.scannedMessages} recent message${summary.scannedMessages === 1 ? '' : 's'}.`
+          : `Reviewed ${summary.scannedMessages} recent email${summary.scannedMessages === 1 ? '' : 's'} across ${summary.scannedMailboxes} mailbox${summary.scannedMailboxes === 1 ? '' : 'es'}.`,
+      );
+    } catch (error) {
+      Alert.alert('Mailbox scan failed', error instanceof Error ? error.message : 'Unable to complete the live mailbox scan.');
+    } finally {
+      setIsMailboxScanning(false);
+    }
+  };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-8"
-    >
-      {/* Hero Section */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 relative overflow-hidden rounded-[2.5rem] p-8 bg-surface-container-low border border-outline-variant/5">
-          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-            <div className="max-w-md">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="relative flex items-center justify-center">
-                  <div className={`absolute w-12 h-12 rounded-full blur-xl ${isAnyEmailLinked ? 'bg-emerald-500/20' : 'bg-secondary/20'}`}></div>
-                  <UserCheck className={`relative z-10 ${isAnyEmailLinked ? 'text-emerald-500' : 'text-secondary'}`} size={32} />
-                </div>
-                <span className={`${isAnyEmailLinked ? 'text-emerald-500' : 'text-secondary'} font-headline font-bold tracking-widest uppercase text-xs`}>
-                  {isAnyEmailLinked ? 'Bot Protection Active' : 'System Guard Active'}
-                </span>
-              </div>
-              <h2 className="text-4xl md:text-5xl font-extrabold font-headline mb-4 tracking-tighter leading-[1.1]">
-                Your digital perimeter is <span className={isAnyEmailLinked ? 'text-emerald-500' : 'text-secondary'}>secure</span>.
-              </h2>
-              <p className="text-on-primary-container text-lg leading-relaxed mb-8">
-                {isAnyEmailLinked 
-                  ? 'The AI Bot is now synchronized with your inboxes, providing real-time protection and immediate threat neutralization.'
-                  : 'AI-driven heuristics are currently monitoring all incoming communications for phishing signatures.'}
-              </p>
-              <button className="premium-gradient text-on-primary font-bold px-8 py-4 rounded-2xl flex items-center gap-3 active:scale-95 transition-transform duration-200 shadow-lg shadow-primary/10">
-                <Bolt size={20} fill="currentColor" />
-                {isAnyEmailLinked ? 'Bot Analysis' : 'Quick Scan'}
-              </button>
-            </div>
-            
-            <div className="hidden md:flex relative w-48 h-48 items-center justify-center">
-              <div className={`absolute inset-0 rounded-full border animate-pulse ${isAnyEmailLinked ? 'bg-emerald-500/5 border-emerald-500/10' : 'bg-secondary/5 border-secondary/10'}`}></div>
-              <div className={`absolute inset-6 rounded-full border ${isAnyEmailLinked ? 'bg-emerald-500/5 border-emerald-500/10' : 'bg-secondary/5 border-secondary/10'}`}></div>
-              <Shield className={isAnyEmailLinked ? 'text-emerald-500/20' : 'text-secondary/20'} size={100} />
-            </div>
-          </div>
-        </div>
+    <View style={styles.container}>
+      <View style={[styles.heroGrid, isDesktop && styles.heroGridDesktop]}>
+        <View style={[styles.heroCard, isMobile && styles.heroCardMobile, isDesktop && styles.heroCardDesktop]}>
+          <View style={styles.heroHeader}>
+            <View style={styles.heroBadge}>
+              <UserCheck color={heroAccentColor} size={28} />
+            </View>
+            <Text style={[styles.heroBadgeText, { color: heroAccentColor }]}>{heroBadgeLabel}</Text>
+          </View>
 
-        <EmailLinker />
-      </section>
+          <Text style={[styles.heroTitle, isMobile && styles.heroTitleMobile]}>
+            Your digital perimeter is <Text style={{ color: heroAccentColor }}>{heroTitleAccent}</Text>
+          </Text>
+          <Text style={[styles.heroBody, isMobile && styles.heroBodyMobile]}>{heroBodyCopy}</Text>
 
-      {/* Active Intelligence */}
-      <section>
-        <div className="flex items-center gap-2 mb-6">
-          <ShieldAlert className="text-secondary" size={18} />
-          <h3 className="text-[10px] font-bold text-secondary uppercase tracking-[0.3em]">Active Intelligence</h3>
-        </div>
-        
-        <div className="bg-surface-container-low rounded-[2.5rem] p-8 border border-secondary/5 overflow-hidden">
-          <div className="flex flex-col lg:flex-row gap-8">
-            <div className="flex-1">
-              <div className="flex justify-between items-start mb-8">
-                <div>
-                  <h4 className="text-2xl font-bold font-headline mb-1">Email Traceroute</h4>
-                  <p className="text-on-primary-container text-sm">Tracking transmission paths for anomalous routing.</p>
-                </div>
-                <button className="bg-surface-container-highest text-secondary text-[10px] font-bold px-4 py-2 rounded-xl flex items-center gap-2 active:scale-95 transition-all uppercase tracking-widest">
-                  Traceroute
-                </button>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {[
-                  { label: 'Sender IP', value: '192.168.1.1', color: 'text-secondary' },
-                  { label: 'Domain IP', value: '104.21.34.12', color: 'text-primary' },
-                  { label: 'Location', value: 'Dublin, Ireland', color: 'text-on-surface' },
-                ].map((item, i) => (
-                  <div key={i} className="bg-surface-container-highest/30 p-5 rounded-2xl border border-outline-variant/5">
-                    <span className="text-[10px] text-on-primary-container font-bold uppercase tracking-widest block mb-1">
-                      {item.label}
-                    </span>
-                    <span className={`${item.color} font-bold font-mono`}>{item.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+          <Pressable
+            onPress={() => void handleMailboxScan()}
+            style={({ pressed }) => [styles.heroButton, (pressed || isMailboxScanning) && styles.pressed]}
+          >
+            {isMailboxScanning ? <ActivityIndicator color="#263046" size="small" /> : <Bolt color="#263046" size={18} />}
+            <Text style={styles.heroButtonText}>{heroButtonLabel}</Text>
+          </Pressable>
 
-            <div className="lg:w-72 h-56 bg-surface-container-highest/20 rounded-3xl relative traceroute-path flex flex-col items-center justify-center overflow-hidden border border-outline-variant/10">
-              <div className="flex items-center justify-around w-full px-6 relative z-10">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center border border-secondary/20">
-                    <AtSign className="text-secondary" size={16} />
-                  </div>
-                  <span className="text-[8px] font-bold uppercase tracking-widest">Origin</span>
-                </div>
-                <div className="flex-1 h-[1px] bg-gradient-to-r from-secondary to-primary mx-2 relative">
-                  <motion.div 
-                    animate={{ left: ['0%', '100%'] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                    className="absolute top-1/2 w-2 h-2 bg-secondary rounded-full -translate-y-1/2 blur-[2px]"
-                  />
-                </div>
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-                    <Globe className="text-primary" size={16} />
-                  </div>
-                  <span className="text-[8px] font-bold uppercase tracking-widest">Cloudflare</span>
-                </div>
-                <div className="flex-1 h-[1px] bg-gradient-to-r from-primary to-secondary mx-2"></div>
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center border border-secondary/20">
-                    <Shield className="text-secondary" size={16} />
-                  </div>
-                  <span className="text-[8px] font-bold uppercase tracking-widest">Secure</span>
-                </div>
-              </div>
-              <div className="absolute bottom-6 text-[10px] text-on-primary-container font-medium tracking-wide">
-                Path integrity verified by AI
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+          <View style={styles.heroShieldWrap}>
+            <Shield color={heroAccentColor} size={88} />
+          </View>
+        </View>
 
-      {/* Threat Feed Section */}
+        <View style={[isDesktop && styles.emailLinkerDesktop]}>
+          <EmailLinker />
+        </View>
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <ShieldAlert color={palette.secondary} size={18} />
+        <Text style={styles.sectionHeaderText}>Active Intelligence</Text>
+      </View>
+
+      <View style={[styles.intelligenceCard, isMobile && styles.intelligenceCardMobile, isDesktop && styles.intelligenceCardDesktop]}>
+        <View style={[styles.intelligenceBlock, isDesktop && styles.intelligenceBlockDesktop]}>
+          <Text style={[styles.blockTitle, isMobile && styles.blockTitleMobile]}>Operational Overview</Text>
+          <Text style={styles.blockBody}>Live data pulled from stored scans, linked mailboxes, and threat escalations in Firestore.</Text>
+          <View style={styles.infoGrid}>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoLabel}>Mailbox Coverage</Text>
+              <Text style={styles.infoValue}>{linkedEmailsLoading ? 'Loading...' : `${realtimeMailboxCount} protected`}</Text>
+            </View>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoLabel}>Mailbox Health</Text>
+              <Text style={styles.infoValue}>{mailboxHealthLabel}</Text>
+            </View>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoLabel}>Next Sweep</Text>
+              <Text style={styles.infoValue}>{nextScheduledScanLabel}</Text>
+            </View>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoLabel}>Active Signal</Text>
+              <Text style={styles.infoValue}>{activeSignalSummary}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={[styles.routeCard, isDesktop && styles.routeCardDesktop]}>
+          <View style={styles.routeRow}>
+            <View style={styles.routeNode}>
+              <AtSign color={palette.secondary} size={16} />
+              <Text style={styles.routeNodeLabel}>Input</Text>
+            </View>
+            <View style={styles.routeLine} />
+            <View style={styles.routeNode}>
+              <Mail color={palette.primary} size={16} />
+              <Text style={styles.routeNodeLabel}>Model</Text>
+            </View>
+            <View style={styles.routeLine} />
+            <View style={styles.routeNode}>
+              <Activity color={palette.secondary} size={16} />
+              <Text style={styles.routeNodeLabel}>Storage</Text>
+            </View>
+          </View>
+          <Text style={styles.routeFooter}>
+            {protectionLine} {realtimeMailboxCount > 0 ? `Next mailbox sweep at ${nextScheduledScanLabel}.` : ''}
+          </Text>
+        </View>
+      </View>
+
       <ThreatFeed isLinked={isAnyEmailLinked} />
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {[
-          { label: 'Mails Scanned', value: '12,482', sub: '+14%', subColor: 'text-secondary' },
-          { label: 'Link Analysis', value: '99.9%', sub: 'Accuracy', subColor: 'text-on-primary-container' },
-          { label: 'Active Uptime', value: '482d', sub: 'Continuous', subColor: 'text-on-primary-container' },
-        ].map((stat, i) => (
-          <div key={i} className="bg-surface-container-low p-8 rounded-[2rem] flex flex-col justify-between border border-outline-variant/5">
-            <span className="text-on-primary-container text-[10px] font-bold tracking-[0.2em] uppercase mb-6">
-              {stat.label}
-            </span>
-            <div className="flex items-baseline gap-3">
-              <span className="text-4xl font-headline font-extrabold tracking-tight">{stat.value}</span>
-              <span className={`${stat.subColor} text-xs font-bold`}>{stat.sub}</span>
-            </div>
-          </div>
+      <View style={[styles.statsGrid, isDesktop && styles.statsGridDesktop]}>
+        {stats.map((stat) => (
+          <View key={stat.label} style={[styles.statCard, isMobile && styles.statCardMobile, isDesktop && styles.statCardDesktop]}>
+            <Text style={styles.statLabel}>{stat.label}</Text>
+            <View style={styles.statRow}>
+              <Text style={[styles.statValue, isMobile && styles.statValueMobile]}>{stat.value}</Text>
+              <Text style={styles.statSub}>{stat.sub}</Text>
+            </View>
+          </View>
         ))}
-      </div>
+      </View>
 
-      {/* Interactive Analytics */}
       <ThreatAnalytics />
-
-      {/* Manual Scan */}
       <ManualScan />
 
-      {/* Recent Threats */}
-      <section>
-        <div className="flex justify-between items-end mb-8">
-          <div>
-            <h3 className="text-3xl font-bold font-headline tracking-tight">Recent Threats</h3>
-            <p className="text-on-primary-container text-sm">Latest neutralization events from the last 24 hours.</p>
-          </div>
-          <button className="text-secondary text-xs font-bold flex items-center gap-2 hover:underline uppercase tracking-widest">
-            View Logs <ArrowRight size={14} />
-          </button>
-        </div>
-        
-        <div className="space-y-4">
-          {[
-            { title: 'Suspicious URL', desc: 'secure-login-apple.support.net/verify', icon: Link2Off, risk: 'High Risk', riskBg: 'bg-error-container/40', riskText: 'text-error' },
-            { title: 'Fake Bank Email', desc: 'From: alert@global-bank-support.io', icon: Mail, risk: 'Medium Risk', riskBg: 'bg-primary-container', riskText: 'text-primary' },
-            { title: 'Malicious Attachment', desc: 'Invoice_29482_Scan.pdf.exe', icon: Paperclip, risk: 'High Risk', riskBg: 'bg-error-container/40', riskText: 'text-error' },
-          ].map((threat, i) => (
-            <div key={i} className="glass-effect p-6 rounded-[2rem] flex flex-col md:flex-row items-start md:items-center justify-between gap-6 transition-all hover:bg-surface-container-highest/80 border border-outline-variant/5">
-              <div className="flex items-center gap-5">
-                <div className={`w-14 h-14 rounded-2xl ${threat.risk === 'High Risk' ? 'bg-error-container/20' : 'bg-surface-container-highest'} flex items-center justify-center`}>
-                  <threat.icon className={threat.risk === 'High Risk' ? 'text-error' : 'text-on-primary-container'} size={24} />
-                </div>
-                <div>
-                  <h4 className="font-bold text-on-surface text-lg font-headline">{threat.title}</h4>
-                  <p className="text-sm text-on-primary-container font-mono opacity-70">{threat.desc}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
-                <div className={`${threat.riskBg} px-4 py-1.5 rounded-lg`}>
-                  <span className={`text-[10px] font-bold ${threat.riskText} uppercase tracking-widest`}>
-                    {threat.risk}
-                  </span>
-                </div>
-                <button className="bg-surface-container-highest text-on-surface text-sm font-bold px-6 py-3 rounded-2xl hover:bg-surface-container-high transition-colors active:scale-95">
-                  View Report
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    </motion.div>
+      <View style={styles.recentSectionHeader}>
+        <View>
+          <Text style={[styles.recentTitle, isMobile && styles.recentTitleMobile]}>Recent Threats</Text>
+          <Text style={styles.recentBody}>Latest escalated detections created from stored scans in this workspace.</Text>
+        </View>
+      </View>
+
+      <View style={styles.recentList}>
+        {loading ? (
+          <View style={styles.recentLoadingCard}>
+            <ActivityIndicator color={palette.secondary} size="small" />
+            <Text style={styles.recentBody}>Loading recent threat records...</Text>
+          </View>
+        ) : recentThreats.length === 0 ? (
+          <View style={styles.recentLoadingCard}>
+            <ShieldAlert color={palette.primaryMuted} size={28} />
+            <Text style={styles.recentCardTitle}>No escalated threats yet</Text>
+            <Text style={styles.recentCardBody}>High- and medium-risk detections appear here automatically after live scans are saved.</Text>
+          </View>
+        ) : (
+          recentThreats.map((threat) => (
+            <View key={threat.id} style={[styles.recentCard, isMobile && styles.recentCardMobile, isDesktop && styles.recentCardDesktop]}>
+              <View style={styles.recentLeft}>
+                <View style={styles.recentIcon}>
+                  <ShieldAlert color={threat.risk === 'Critical' || threat.risk === 'High' ? palette.error : palette.primaryMuted} size={22} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.recentCardTitle}>{threat.type}</Text>
+                  <Text style={styles.recentCardBody}>{threat.source}</Text>
+                </View>
+              </View>
+              <View style={[styles.recentRight, isMobile && styles.recentRightMobile, isDesktop && styles.recentRightDesktop]}>
+                <View style={[styles.recentRiskBadge, (threat.risk === 'Critical' || threat.risk === 'High') && styles.recentRiskBadgeHigh]}>
+                  <Text style={[styles.recentRiskText, (threat.risk === 'Critical' || threat.risk === 'High') && styles.recentRiskTextHigh]}>{threat.risk}</Text>
+                </View>
+                <Text style={styles.reportButtonText}>{new Date(threat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+              </View>
+            </View>
+          ))
+        )}
+      </View>
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    gap: 24,
+    width: '100%',
+    maxWidth: 1320,
+    alignSelf: 'center',
+  },
+  heroGrid: {
+    gap: 18,
+  },
+  heroGridDesktop: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  heroCard: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 24,
+    gap: 18,
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  heroCardDesktop: {
+    flex: 2,
+    minHeight: 320,
+  },
+  heroCardMobile: {
+    borderRadius: 28,
+    padding: 20,
+    gap: 16,
+  },
+  emailLinkerDesktop: {
+    flex: 1,
+    minWidth: 380,
+    maxWidth: 430,
+  },
+  heroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  heroBadge: {
+    width: 52,
+    height: 52,
+    borderRadius: 22,
+    backgroundColor: 'rgba(74,225,131,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroBadgeText: {
+    fontFamily: fonts.headline,
+    fontSize: 11,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 38,
+    lineHeight: 42,
+  },
+  heroTitleMobile: {
+    fontSize: 30,
+    lineHeight: 34,
+  },
+  heroBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 16,
+    lineHeight: 24,
+    maxWidth: 520,
+  },
+  heroBodyMobile: {
+    fontSize: 14,
+    lineHeight: 21,
+    maxWidth: undefined,
+  },
+  heroButton: {
+    alignSelf: 'flex-start',
+    borderRadius: 18,
+    backgroundColor: palette.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  heroButtonText: {
+    color: '#263046',
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+  },
+  heroShieldWrap: {
+    position: 'absolute',
+    right: -10,
+    bottom: -10,
+    opacity: 0.16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sectionHeaderText: {
+    color: palette.secondary,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  intelligenceCard: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(74,225,131,0.12)',
+    padding: 24,
+    gap: 18,
+    ...shadows.card,
+  },
+  intelligenceCardDesktop: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  intelligenceCardMobile: {
+    borderRadius: 28,
+    padding: 20,
+  },
+  intelligenceBlock: {
+    gap: 14,
+  },
+  intelligenceBlockDesktop: {
+    flex: 1,
+  },
+  blockTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 28,
+  },
+  blockTitleMobile: {
+    fontSize: 24,
+  },
+  blockBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  infoGrid: {
+    gap: 10,
+  },
+  infoCard: {
+    borderRadius: 20,
+    backgroundColor: 'rgba(50,53,60,0.24)',
+    padding: 16,
+    gap: 6,
+  },
+  infoLabel: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  infoValue: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 16,
+  },
+  routeCard: {
+    borderRadius: 28,
+    backgroundColor: 'rgba(50,53,60,0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.28)',
+    padding: 18,
+    gap: 18,
+  },
+  routeCardDesktop: {
+    width: 320,
+    justifyContent: 'center',
+  },
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  routeNode: {
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 64,
+  },
+  routeNodeLabel: {
+    color: palette.onSurface,
+    fontFamily: fonts.headline,
+    fontSize: 9,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  routeLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: palette.secondary,
+    opacity: 0.5,
+  },
+  routeFooter: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  statsGrid: {
+    gap: 12,
+  },
+  statsGridDesktop: {
+    flexDirection: 'row',
+  },
+  statCard: {
+    backgroundColor: palette.surfaceLow,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.3)',
+    padding: 20,
+    gap: 20,
+    ...shadows.card,
+  },
+  statCardDesktop: {
+    flex: 1,
+  },
+  statCardMobile: {
+    borderRadius: 24,
+    padding: 18,
+    gap: 16,
+  },
+  statLabel: {
+    color: palette.primaryMuted,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  statValue: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 38,
+  },
+  statValueMobile: {
+    fontSize: 32,
+  },
+  statSub: {
+    color: palette.secondary,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  recentSectionHeader: {
+    gap: 6,
+  },
+  recentTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 30,
+  },
+  recentTitleMobile: {
+    fontSize: 24,
+  },
+  recentBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+  },
+  recentList: {
+    gap: 12,
+  },
+  recentLoadingCard: {
+    borderRadius: 28,
+    backgroundColor: 'rgba(39,45,52,0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.25)',
+    padding: 22,
+    gap: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recentCard: {
+    borderRadius: 28,
+    backgroundColor: 'rgba(39,45,52,0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.25)',
+    padding: 18,
+    gap: 14,
+  },
+  recentCardDesktop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  recentCardMobile: {
+    borderRadius: 24,
+    padding: 16,
+  },
+  recentLeft: {
+    flexDirection: 'row',
+    gap: 14,
+  },
+  recentIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(50,53,60,0.26)',
+  },
+  recentCardTitle: {
+    color: palette.onSurface,
+    fontFamily: fonts.headlineBold,
+    fontSize: 18,
+    textAlign: 'center',
+  },
+  recentCardBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    marginTop: 6,
+  },
+  recentRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  recentRightDesktop: {
+    minWidth: 250,
+    justifyContent: 'flex-end',
+  },
+  recentRightMobile: {
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  },
+  recentRiskBadge: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(187,198,226,0.16)',
+  },
+  recentRiskBadgeHigh: {
+    backgroundColor: 'rgba(255,92,82,0.16)',
+  },
+  recentRiskText: {
+    color: palette.primary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  recentRiskTextHigh: {
+    color: palette.error,
+  },
+  reportButtonText: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+  },
+  pressed: {
+    opacity: 0.92,
+  },
+});

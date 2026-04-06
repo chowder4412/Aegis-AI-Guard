@@ -1,0 +1,14 @@
+.git
+.github
+.expo
+.venv
+.venv311
+.pytest_cache
+node_modules
+dist
+coverage
+expo-web.log
+firebase-debug.log
+backend/.env
+backend/data/raw
+backend/tests

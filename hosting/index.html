@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aegis AI Guard API Gateway</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #07111d;
+        --panel: rgba(14, 24, 38, 0.88);
+        --border: rgba(148, 171, 204, 0.18);
+        --text: #eef3fb;
+        --muted: #aab9cf;
+        --accent: #9ec6ff;
+        --success: #76e3a5;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(92, 146, 255, 0.18), transparent 32%),
+          radial-gradient(circle at bottom right, rgba(46, 185, 123, 0.16), transparent 28%),
+          var(--bg);
+        color: var(--text);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      main {
+        width: min(760px, 100%);
+        padding: 32px;
+        border-radius: 28px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        backdrop-filter: blur(10px);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(2rem, 4vw, 3.2rem);
+        line-height: 1.05;
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(118, 227, 165, 0.12);
+        color: var(--success);
+        font-weight: 600;
+        margin-bottom: 18px;
+      }
+
+      code {
+        color: var(--accent);
+      }
+
+      ul {
+        margin: 18px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="badge">Aegis AI Guard deployment gateway is online</div>
+      <h1>Firebase Hosting is fronting the backend successfully.</h1>
+      <p>
+        This site is a thin HTTPS entrypoint for the Aegis AI Guard backend deployed on Cloud Run.
+        The mobile app should use this domain as its API base for <code>/detect</code>, <code>/sandbox/*</code>,
+        and <code>/oauth/gmail/*</code>.
+      </p>
+      <ul>
+        <li><code>/health</code> checks runtime health</li>
+        <li><code>/readiness</code> checks deployment readiness and configuration warnings</li>
+        <li><code>/detect</code> scores email content</li>
+        <li><code>/sandbox/*</code> handles link analysis and detonation orchestration</li>
+      </ul>
+    </main>
+  </body>
+  </html>
