@@ -34,6 +34,61 @@ class DetectionResponse(BaseModel):
     model: str
 
 
+class LearningFeedbackSignal(BaseModel):
+    kind: Literal["lesson", "scenario", "analysis-source", "indicator", "risk", "mailbox"]
+    value: str = Field(min_length=1, max_length=200)
+
+    @field_validator("value")
+    @classmethod
+    def signal_value_must_not_be_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("value must not be blank")
+        return stripped
+
+
+class LearningFeedbackRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=40_000)
+    input_type: Literal["url", "email"]
+    source: Literal["manual-scan", "academy-drill", "mailbox-scan"]
+    feedback_kind: Literal["observation", "user-correction"] = "observation"
+    risk: Literal["Critical", "High", "Medium", "Low"]
+    category: Literal["Phishing", "Malware", "Spoofing", "Social", "Other"]
+    confidence: float = Field(ge=0.0, le=100.0)
+    summary: str = Field(min_length=1, max_length=1_000)
+    recommendation: str = Field(min_length=1, max_length=2_000)
+    analysis_source: Literal["backend-model", "hybrid", "fallback", "local-intelligence", "gemini"]
+    analysis_source_label: str = Field(min_length=1, max_length=120)
+    lesson_id: str | None = Field(default=None, max_length=120)
+    scenario_id: str | None = Field(default=None, max_length=120)
+    scenario_title: str | None = Field(default=None, max_length=200)
+    user_label: Literal["phishing", "legitimate", "unknown"] = "unknown"
+    signals: list[LearningFeedbackSignal] = Field(default_factory=list)
+
+    @field_validator("content", "summary", "recommendation", "analysis_source_label")
+    @classmethod
+    def text_fields_must_not_be_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("text fields must not be blank")
+        return stripped
+
+
+class LearningFeedbackResponse(BaseModel):
+    status: Literal["queued"]
+    queued_at: str
+    continuous_learning_enabled: bool
+
+
+class LearningStatusResponse(BaseModel):
+    status: Literal["active", "disabled"]
+    continuous_learning_enabled: bool
+    feedback_count: int = Field(ge=0)
+    labeled_feedback_count: int = Field(ge=0)
+    latest_feedback_at: str | None = None
+    sources: dict[str, int]
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"]
     model_loaded: bool

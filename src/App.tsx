@@ -19,6 +19,7 @@ import { Education } from './pages/Education';
 import { Logs } from './pages/Logs';
 import { Settings } from './pages/Settings';
 import { PublicInfoPage } from './pages/PublicInfoPage';
+import { AcademyProvider } from './context/AcademyContext';
 import { LinkedEmailsProvider } from './context/LinkedEmailsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import {
@@ -539,9 +540,11 @@ export default function App() {
       <LinearGradient colors={[palette.background, '#131821', palette.backgroundDeep]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <AuthProvider>
-          <LinkedEmailsProvider>
-            <AppContent />
-          </LinkedEmailsProvider>
+          <AcademyProvider>
+            <LinkedEmailsProvider>
+              <AppContent />
+            </LinkedEmailsProvider>
+          </AcademyProvider>
         </AuthProvider>
       </SafeAreaView>
     </SafeAreaProvider>

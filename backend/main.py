@@ -23,6 +23,7 @@ from backend.gmail_mailbox import BackendGmailMailboxScanner
 from backend.link_sandbox import LinkSandboxAnalyzer
 from backend.routers import detect as detect_router
 from backend.routers import health as health_router
+from backend.routers import learning as learning_router
 from backend.routers import mailbox as mailbox_router
 from backend.routers import oauth as oauth_router
 from backend.routers import sandbox as sandbox_router
@@ -126,6 +127,7 @@ if settings.allowed_cors_origins:
 # Routers
 app.include_router(health_router.router)
 app.include_router(detect_router.router)
+app.include_router(learning_router.router)
 app.include_router(sandbox_router.router)
 app.include_router(mailbox_router.router)
 app.include_router(oauth_router.router)

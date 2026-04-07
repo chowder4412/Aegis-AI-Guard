@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { BarChart3, CheckCircle2, CloudOff, RefreshCw, SearchCode } from 'lucide-react-native';
+import { BarChart3, BrainCircuit, CheckCircle2, CloudOff, RefreshCw, SearchCode } from 'lucide-react-native';
 import { ManualScan } from '../components/ManualScan';
+import { useAcademy } from '../context/AcademyContext';
 import { useAuth } from '../context/AuthContext';
+import { useLinkedEmails } from '../context/LinkedEmailsContext';
 import { useResponsive } from '../hooks/useResponsive';
+import { getScannerCoachingInsight } from '../services/educationService';
 import { getStoredGeminiApiKey } from '../services/geminiService';
 import { getResolvedPhishingApiConfig } from '../services/phishingApiService';
 import { subscribeToScanEvents } from '../services/securityDataService';
@@ -14,6 +17,8 @@ export const Scanner = () => {
   const { isDesktop, isTablet } = useResponsive();
   const isMobile = !isTablet;
   const { user } = useAuth();
+  const { linkedEmails } = useLinkedEmails();
+  const { activeScenario } = useAcademy();
   const [events, setEvents] = useState<ScanEvent[]>([]);
   const [phishingApiConfigured, setPhishingApiConfigured] = useState(false);
   const [phishingApiStatusLabel, setPhishingApiStatusLabel] = useState('No phishing detector endpoint configured');
@@ -50,6 +55,15 @@ export const Scanner = () => {
 
   const blockedCount = useMemo(() => events.filter((item) => item.action === 'Blocked').length, [events]);
   const recentSource = events[0]?.analysisSourceLabel || 'No scans yet';
+  const coachingInsight = useMemo(
+    () =>
+      getScannerCoachingInsight({
+        activeScenario,
+        latestEvent: events[0],
+        linkedMailboxCount: linkedEmails.filter((item) => item.provider === 'gmail-oauth').length,
+      }),
+    [activeScenario, events, linkedEmails],
+  );
 
   return (
     <View style={styles.container}>
@@ -68,6 +82,15 @@ export const Scanner = () => {
             <SearchCode color="rgba(225,226,235,0.08)" size={120} />
           </View>
           <Text style={styles.eyebrow}>Security Ingestion Interface</Text>
+          <View style={styles.coachingCard}>
+            <View style={styles.coachingHeader}>
+              <BrainCircuit color={palette.secondary} size={18} />
+              <Text style={styles.coachingEyebrow}>{coachingInsight.eyebrow}</Text>
+            </View>
+            <Text style={styles.coachingTitle}>{coachingInsight.title}</Text>
+            <Text style={styles.coachingBody}>{coachingInsight.body}</Text>
+            <Text style={styles.coachingAction}>{coachingInsight.actionLabel}</Text>
+          </View>
           <ManualScan />
         </View>
 
@@ -199,6 +222,43 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 2,
     textTransform: 'uppercase',
+  },
+  coachingCard: {
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: 'rgba(74,225,131,0.18)',
+    backgroundColor: 'rgba(20,27,33,0.78)',
+    padding: 18,
+    gap: 8,
+  },
+  coachingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  coachingEyebrow: {
+    color: palette.secondary,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+  },
+  coachingTitle: {
+    color: palette.primary,
+    fontFamily: fonts.headlineBold,
+    fontSize: 24,
+    lineHeight: 28,
+  },
+  coachingBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  coachingAction: {
+    color: palette.secondary,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 13,
   },
   sideColumn: {
     gap: 18,

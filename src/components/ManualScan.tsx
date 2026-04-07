@@ -1,13 +1,34 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { Copy, Globe, Mail, Search, ShieldAlert, Sparkles } from 'lucide-react-native';
+import { BrainCircuit, CheckCircle2, Copy, Globe, Mail, Search, ShieldAlert, Sparkles, X } from 'lucide-react-native';
+import { useAcademy } from '../context/AcademyContext';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { analyzeContent, generateResponse } from '../services/geminiService';
+import { submitLearningFeedback } from '../services/learningService';
 import { saveScanEvent } from '../services/securityDataService';
-import type { ScanResult } from '../types';
+import type { LearningFeedbackSignal, ScanResult } from '../types';
 import { fonts, palette, riskColors, shadows } from '../theme';
+
+const buildLearningSignals = ({
+  result,
+  activeLessonId,
+  activeScenarioId,
+}: {
+  result: ScanResult;
+  activeLessonId: string | null;
+  activeScenarioId?: string;
+}): LearningFeedbackSignal[] => [
+  { kind: 'analysis-source', value: result.analysisSourceLabel },
+  { kind: 'risk', value: result.risk },
+  ...(activeLessonId ? [{ kind: 'lesson' as const, value: activeLessonId }] : []),
+  ...(activeScenarioId ? [{ kind: 'scenario' as const, value: activeScenarioId }] : []),
+  ...result.technicalDetails.slice(0, 3).map((detail) => ({
+    kind: 'indicator' as const,
+    value: detail.label,
+  })),
+];
 
 export const ManualScan = () => {
   const { isDesktop } = useResponsive();
@@ -17,7 +38,22 @@ export const ManualScan = () => {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [generatedEmail, setGeneratedEmail] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [learningMessage, setLearningMessage] = useState<string | null>(null);
+  const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false);
   const { user } = useAuth();
+  const { activeLessonId, activeScenario, clearScenario } = useAcademy();
+
+  useEffect(() => {
+    if (!activeScenario) {
+      return;
+    }
+
+    setInput(activeScenario.draftInput);
+    setType(activeScenario.inputType);
+    setResult(null);
+    setGeneratedEmail(null);
+    setLearningMessage(`Academy drill loaded from ${activeScenario.sourceLabel}.`);
+  }, [activeScenario]);
 
   const handleScan = async () => {
     if (!input.trim()) {
@@ -29,13 +65,87 @@ export const ManualScan = () => {
       const trimmedInput = input.trim();
       const analysis = await analyzeContent(trimmedInput, type);
       setResult(analysis);
+      setLearningMessage(null);
       if (user) {
         await saveScanEvent(user.uid, trimmedInput, type, analysis);
+        try {
+          const learningResult = await submitLearningFeedback({
+            content: trimmedInput,
+            inputType: type,
+            source: activeScenario ? 'academy-drill' : 'manual-scan',
+            risk: analysis.risk,
+            category: analysis.category,
+            confidence: analysis.confidence,
+            summary: analysis.summary,
+            recommendation: analysis.recommendation,
+            analysisSource: analysis.analysisSource,
+            analysisSourceLabel: analysis.analysisSourceLabel,
+            lessonId: activeLessonId,
+            scenarioId: activeScenario?.id,
+            scenarioTitle: activeScenario?.title,
+            userLabel: 'unknown',
+            signals: buildLearningSignals({
+              result: analysis,
+              activeLessonId,
+              activeScenarioId: activeScenario?.id,
+            }),
+          });
+
+          if (learningResult?.continuousLearningEnabled) {
+            setLearningMessage('Continuous learning queued this scan for future retraining and lesson adaptation.');
+          }
+        } catch {
+          setLearningMessage('Scan completed. Continuous learning could not queue this sample from the current backend session.');
+        }
       }
     } catch {
       Alert.alert('Scan failed', 'The AI scan could not complete. Please try again.');
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const submitCorrection = async (userLabel: 'phishing' | 'legitimate') => {
+    if (!result || !user || !input.trim()) {
+      return;
+    }
+
+    setIsSubmittingCorrection(true);
+    try {
+      const learningResult = await submitLearningFeedback({
+        content: input.trim(),
+        inputType: type,
+        source: activeScenario ? 'academy-drill' : 'manual-scan',
+        feedbackKind: 'user-correction',
+        risk: result.risk,
+        category: result.category,
+        confidence: result.confidence,
+        summary: result.summary,
+        recommendation: result.recommendation,
+        analysisSource: result.analysisSource,
+        analysisSourceLabel: result.analysisSourceLabel,
+        lessonId: activeLessonId,
+        scenarioId: activeScenario?.id,
+        scenarioTitle: activeScenario?.title,
+        userLabel,
+        signals: buildLearningSignals({
+          result,
+          activeLessonId,
+          activeScenarioId: activeScenario?.id,
+        }),
+      });
+
+      if (learningResult?.continuousLearningEnabled) {
+        setLearningMessage(
+          userLabel === 'phishing'
+            ? 'Your confirmation was added to the continuous-learning queue as a threat label.'
+            : 'Your correction was added to the continuous-learning queue as a legitimate label.',
+        );
+      }
+    } catch {
+      setLearningMessage('The scan result is still available, but the correction could not be queued right now.');
+    } finally {
+      setIsSubmittingCorrection(false);
     }
   };
 
@@ -90,6 +200,18 @@ export const ManualScan = () => {
           </View>
 
           <View style={styles.textareaWrap}>
+            {activeScenario ? (
+              <View style={styles.drillBanner}>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={styles.drillEyebrow}>Academy Scenario</Text>
+                  <Text style={styles.drillTitle}>{activeScenario.title}</Text>
+                  <Text style={styles.drillBody}>{activeScenario.summary}</Text>
+                </View>
+                <Pressable onPress={clearScenario} style={styles.dismissButton}>
+                  <X color={palette.onSurfaceMuted} size={14} />
+                </Pressable>
+              </View>
+            ) : null}
             <TextInput
               multiline
               onChangeText={setInput}
@@ -132,64 +254,93 @@ export const ManualScan = () => {
 
           {result ? (
             <View style={styles.results}>
-          <View style={styles.resultHeader}>
-            <View style={[styles.riskBadge, { backgroundColor: riskColors[result.risk].tint }]}>
-              <Text style={[styles.riskBadgeText, { color: riskColors[result.risk].text }]}>{result.risk} Risk</Text>
-            </View>
-            <Text style={styles.categoryText}>{result.analysisSourceLabel}</Text>
-          </View>
-
-          <Text style={styles.categorySubtext}>{result.category}</Text>
-
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>{result.summary}</Text>
-            <Text style={styles.summaryBody}>{result.detailedSummary}</Text>
-          </View>
-
-          <View style={styles.metricsRow}>
-            <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>Impact Score</Text>
-              <Text style={styles.metricValue}>{result.impactScore}</Text>
-            </View>
-            <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>Confidence</Text>
-              <Text style={styles.metricValue}>{result.confidence}%</Text>
-            </View>
-          </View>
-
-          <View style={styles.detailBlock}>
-            <Text style={styles.detailHeading}>Recommendation</Text>
-            <Text style={styles.detailBody}>{result.recommendation}</Text>
-          </View>
-
-          <View style={styles.detailBlock}>
-            <Text style={styles.detailHeading}>Technical Indicators</Text>
-            <View style={styles.chipWrap}>
-              {result.technicalDetails.map((detail) => (
-                <View key={detail.label} style={styles.detailChip}>
-                  <Text style={styles.detailChipTitle}>{detail.label}</Text>
-                  <Text style={styles.detailChipBody}>{detail.description}</Text>
+              <View style={styles.resultHeader}>
+                <View style={[styles.riskBadge, { backgroundColor: riskColors[result.risk].tint }]}>
+                  <Text style={[styles.riskBadgeText, { color: riskColors[result.risk].text }]}>{result.risk} Risk</Text>
                 </View>
-              ))}
-            </View>
-          </View>
+                <Text style={styles.categoryText}>{result.analysisSourceLabel}</Text>
+              </View>
 
-          <Pressable onPress={handleGenerateEmail} style={({ pressed }) => [styles.secondaryButton, (pressed || isGenerating) && styles.pressed]}>
-            {isGenerating ? <ActivityIndicator color={palette.onSurface} size="small" /> : <Mail color={palette.onSurface} size={16} />}
-            <Text style={styles.secondaryButtonText}>{isGenerating ? 'Generating...' : 'Generate Alert Response'}</Text>
-          </Pressable>
+              <Text style={styles.categorySubtext}>{result.category}</Text>
 
-          {generatedEmail ? (
-            <View style={styles.generatedCard}>
-              <View style={styles.generatedHeader}>
-                <Text style={styles.generatedLabel}>AI Response Draft</Text>
-                <Pressable onPress={copyDraft} style={styles.copyButton}>
-                  <Copy color={palette.secondary} size={14} />
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryTitle}>{result.summary}</Text>
+                <Text style={styles.summaryBody}>{result.detailedSummary}</Text>
+              </View>
+
+              <View style={styles.metricsRow}>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricLabel}>Impact Score</Text>
+                  <Text style={styles.metricValue}>{result.impactScore}</Text>
+                </View>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricLabel}>Confidence</Text>
+                  <Text style={styles.metricValue}>{result.confidence}%</Text>
+                </View>
+              </View>
+
+              <View style={styles.detailBlock}>
+                <Text style={styles.detailHeading}>Recommendation</Text>
+                <Text style={styles.detailBody}>{result.recommendation}</Text>
+              </View>
+
+              {learningMessage ? (
+                <View style={styles.learningCard}>
+                  <View style={styles.learningHeader}>
+                    <BrainCircuit color={palette.secondary} size={16} />
+                    <Text style={styles.learningTitle}>Continuous Learning Loop</Text>
+                  </View>
+                  <Text style={styles.learningBody}>{learningMessage}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.detailBlock}>
+                <Text style={styles.detailHeading}>Technical Indicators</Text>
+                <View style={styles.chipWrap}>
+                  {result.technicalDetails.map((detail) => (
+                    <View key={detail.label} style={styles.detailChip}>
+                      <Text style={styles.detailChipTitle}>{detail.label}</Text>
+                      <Text style={styles.detailChipBody}>{detail.description}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.feedbackRow}>
+                <Pressable
+                  disabled={isSubmittingCorrection}
+                  onPress={() => submitCorrection('phishing')}
+                  style={({ pressed }) => [styles.feedbackButton, styles.feedbackThreatButton, (pressed || isSubmittingCorrection) && styles.pressed]}
+                >
+                  <ShieldAlert color={palette.onSecondary} size={14} />
+                  <Text style={styles.feedbackThreatText}>Confirm Threat</Text>
+                </Pressable>
+                <Pressable
+                  disabled={isSubmittingCorrection}
+                  onPress={() => submitCorrection('legitimate')}
+                  style={({ pressed }) => [styles.feedbackButton, styles.feedbackSafeButton, (pressed || isSubmittingCorrection) && styles.pressed]}
+                >
+                  <CheckCircle2 color={palette.secondary} size={14} />
+                  <Text style={styles.feedbackSafeText}>Mark Safe</Text>
                 </Pressable>
               </View>
-              <Text style={styles.generatedBody}>{generatedEmail}</Text>
-            </View>
-          ) : null}
+
+              <Pressable onPress={handleGenerateEmail} style={({ pressed }) => [styles.secondaryButton, (pressed || isGenerating) && styles.pressed]}>
+                {isGenerating ? <ActivityIndicator color={palette.onSurface} size="small" /> : <Mail color={palette.onSurface} size={16} />}
+                <Text style={styles.secondaryButtonText}>{isGenerating ? 'Generating...' : 'Generate Alert Response'}</Text>
+              </Pressable>
+
+              {generatedEmail ? (
+                <View style={styles.generatedCard}>
+                  <View style={styles.generatedHeader}>
+                    <Text style={styles.generatedLabel}>AI Response Draft</Text>
+                    <Pressable onPress={copyDraft} style={styles.copyButton}>
+                      <Copy color={palette.secondary} size={14} />
+                    </Pressable>
+                  </View>
+                  <Text style={styles.generatedBody}>{generatedEmail}</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -282,6 +433,47 @@ const styles = StyleSheet.create({
   },
   textareaWrap: {
     position: 'relative',
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  drillBanner: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 6,
+    backgroundColor: 'rgba(18,27,22,0.76)',
+    borderWidth: 1,
+    borderColor: 'rgba(74,225,131,0.16)',
+    borderBottomWidth: 0,
+  },
+  drillEyebrow: {
+    color: palette.secondary,
+    fontFamily: fonts.headline,
+    fontSize: 10,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+  },
+  drillTitle: {
+    color: palette.primary,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 14,
+  },
+  drillBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  dismissButton: {
+    alignSelf: 'flex-start',
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(68,71,76,0.34)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   textarea: {
     minHeight: 180,
@@ -431,6 +623,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
   },
+  learningCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(74,225,131,0.16)',
+    backgroundColor: 'rgba(18,27,22,0.72)',
+    padding: 14,
+    gap: 8,
+  },
+  learningHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  learningTitle: {
+    color: palette.secondary,
+    fontFamily: fonts.headline,
+    fontSize: 11,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  learningBody: {
+    color: palette.onSurfaceMuted,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    lineHeight: 19,
+  },
   chipWrap: {
     gap: 10,
   },
@@ -450,6 +668,38 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 13,
     lineHeight: 18,
+  },
+  feedbackRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  feedbackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  feedbackThreatButton: {
+    backgroundColor: 'rgba(255,122,87,0.18)',
+    borderColor: 'rgba(255,122,87,0.24)',
+  },
+  feedbackSafeButton: {
+    backgroundColor: 'rgba(74,225,131,0.1)',
+    borderColor: 'rgba(74,225,131,0.18)',
+  },
+  feedbackThreatText: {
+    color: palette.onSecondary,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 13,
+  },
+  feedbackSafeText: {
+    color: palette.secondary,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 13,
   },
   secondaryButton: {
     borderRadius: 18,

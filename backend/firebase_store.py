@@ -83,6 +83,9 @@ class FirebaseMailboxStore:
             .document(email.strip().lower().replace("/", "%2F"))
         )
 
+    def _learning_feedback_collection(self, uid: str):
+        return self._client.collection("users").document(uid).collection("learningFeedback")
+
     def save_linked_mailbox(self, uid: str, email: str) -> None:
         if not self.enabled or not self._client:
             return
@@ -304,3 +307,60 @@ class FirebaseMailboxStore:
         if not self.enabled or not self._client:
             return
         self._gmail_connection_doc(uid, email).delete()
+
+    def save_learning_feedback(self, uid: str, feedback: dict[str, Any]) -> str | None:
+        if not self.enabled or not self._client:
+            return None
+
+        now = self._now_iso()
+        payload = {
+            **feedback,
+            "createdAt": now,
+            "trainingStatus": "queued",
+        }
+        doc_ref = self._learning_feedback_collection(uid).document()
+        doc_ref.set(payload)
+        return now
+
+    def get_learning_status(self, uid: str) -> dict[str, Any]:
+        if not self.enabled or not self._client:
+            return {
+                "status": "disabled",
+                "continuous_learning_enabled": False,
+                "feedback_count": 0,
+                "labeled_feedback_count": 0,
+                "latest_feedback_at": None,
+                "sources": {},
+            }
+
+        query = (
+            self._learning_feedback_collection(uid)
+            .order_by("createdAt", direction=firestore.Query.DESCENDING)
+            .limit(200)
+        )
+        documents = list(query.stream())
+
+        sources: dict[str, int] = {}
+        labeled_feedback_count = 0
+        latest_feedback_at: str | None = None
+
+        for document in documents:
+            data = document.to_dict() or {}
+            source = str(data.get("source") or "unknown").strip() or "unknown"
+            sources[source] = sources.get(source, 0) + 1
+
+            user_label = str(data.get("user_label") or "unknown").strip().lower()
+            if user_label in {"phishing", "legitimate"}:
+                labeled_feedback_count += 1
+
+            if latest_feedback_at is None:
+                latest_feedback_at = str(data.get("createdAt") or "") or None
+
+        return {
+            "status": "active",
+            "continuous_learning_enabled": True,
+            "feedback_count": len(documents),
+            "labeled_feedback_count": labeled_feedback_count,
+            "latest_feedback_at": latest_feedback_at,
+            "sources": sources,
+        }

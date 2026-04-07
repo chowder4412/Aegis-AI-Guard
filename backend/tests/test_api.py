@@ -259,6 +259,117 @@ def test_readiness_endpoint_available() -> None:
     assert "model_loaded" in payload["services"]
 
 
+def test_learning_feedback_requires_authenticated_user(monkeypatch) -> None:
+    client = TestClient(main_module.app)
+
+    monkeypatch.setattr(main_module.mailbox_store, "verify_id_token", lambda _: None)
+
+    response = client.post(
+        "/learning/feedback",
+        json={
+            "content": "https://secure-verification-check.example/account",
+            "input_type": "url",
+            "source": "academy-drill",
+            "risk": "High",
+            "category": "Phishing",
+            "confidence": 92,
+            "summary": "Credential harvest indicators detected.",
+            "recommendation": "Do not trust the destination.",
+            "analysis_source": "local-intelligence",
+            "analysis_source_label": "Local Intelligence",
+            "signals": [{"kind": "lesson", "value": "harvesting"}],
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "missing bearer token"
+
+
+def test_learning_feedback_is_queued(monkeypatch) -> None:
+    client = TestClient(main_module.app)
+    stored: dict[str, object] = {}
+
+    monkeypatch.setattr(main_module.mailbox_store, "verify_id_token", lambda _: {"uid": "user-123"})
+    monkeypatch.setattr(main_module.mailbox_store, "_enabled", True, raising=False)
+    monkeypatch.setattr(main_module.mailbox_store, "_client", object(), raising=False)
+
+    def fake_save(uid: str, payload: dict[str, object]) -> str:
+        stored["uid"] = uid
+        stored["payload"] = payload
+        return "2026-04-07T12:00:00Z"
+
+    monkeypatch.setattr(main_module.mailbox_store, "save_learning_feedback", fake_save)
+
+    response = client.post(
+        "/learning/feedback",
+        json={
+            "content": "Verify your account immediately.",
+            "input_type": "email",
+            "source": "manual-scan",
+            "feedback_kind": "user-correction",
+            "risk": "High",
+            "category": "Phishing",
+            "confidence": 97,
+            "summary": "Credential harvest indicators detected.",
+            "recommendation": "Quarantine the message.",
+            "analysis_source": "hybrid",
+            "analysis_source_label": "Hybrid Analysis",
+            "lesson_id": "harvesting",
+            "scenario_id": "event-1",
+            "scenario_title": "Replay a suspicious email drill",
+            "user_label": "phishing",
+            "signals": [
+                {"kind": "lesson", "value": "harvesting"},
+                {"kind": "scenario", "value": "event-1"},
+            ],
+        },
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "queued",
+        "queued_at": "2026-04-07T12:00:00Z",
+        "continuous_learning_enabled": True,
+    }
+    assert stored["uid"] == "user-123"
+    payload = stored["payload"]
+    assert isinstance(payload, dict)
+    assert payload["feedback_kind"] == "user-correction"
+    assert payload["user_label"] == "phishing"
+
+
+def test_learning_status_reports_aggregates(monkeypatch) -> None:
+    client = TestClient(main_module.app)
+
+    monkeypatch.setattr(main_module.mailbox_store, "verify_id_token", lambda _: {"uid": "user-123"})
+    monkeypatch.setattr(
+        main_module.mailbox_store,
+        "get_learning_status",
+        lambda uid: {
+            "status": "active",
+            "continuous_learning_enabled": True,
+            "feedback_count": 8,
+            "labeled_feedback_count": 3,
+            "latest_feedback_at": "2026-04-07T13:00:00Z",
+            "sources": {"academy-drill": 5, "manual-scan": 3},
+            "uid": uid,
+        },
+    )
+
+    response = client.get("/learning/status", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "active",
+        "continuous_learning_enabled": True,
+        "feedback_count": 8,
+        "labeled_feedback_count": 3,
+        "latest_feedback_at": "2026-04-07T13:00:00Z",
+        "sources": {"academy-drill": 5, "manual-scan": 3},
+    }
+
+
 def test_cors_preflight_allows_localhost_web_origin() -> None:
     client = TestClient(main_module.app)
     response = client.options(
