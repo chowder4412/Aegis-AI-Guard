@@ -45,5 +45,8 @@ uvicorn-*.log
 android/app/debug.keystore
 
 # Generated training datasets
+data/
 backend/data/raw/
 backend/data/processed/
+data/
+/data/
