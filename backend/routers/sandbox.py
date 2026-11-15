@@ -187,6 +187,17 @@ async def get_link_inspection_job(
     )
 
 
+@router.post("/inspect-link/execute/{job_id}")
+async def execute_link_inspection_job(
+    job_id: str,
+    request: Request,
+) -> dict[str, str]:
+    from backend.main import sandbox_queue
+
+    asyncio.create_task(sandbox_queue.execute_job_by_id(job_id))
+    return {"status": "accepted", "job_id": job_id}
+
+
 # ---------------------------------------------------------------------------
 # Detonation endpoints
 # ---------------------------------------------------------------------------

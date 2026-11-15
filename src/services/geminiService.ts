@@ -1,8 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GoogleGenAI, Type } from '@google/genai';
 import type { EmailDetectionResponse, ScanResult } from '../types';
 import { analyzeContentWithLocalIntelligence, type LocalIntelligenceResult } from './localIntelligenceService';
-import { type BackendEmailDetectionResult, detectEmailWithBackendDetailed } from './phishingApiService';
+import { type BackendEmailDetectionResult, detectEmailWithBackendDetailed, getResolvedPhishingApiConfig } from './phishingApiService';
 
 export const GEMINI_API_KEY_STORAGE_KEY = 'aegis.gemini.apiKey';
 
@@ -152,70 +151,75 @@ const parseGeminiResult = (raw: string): ScanResult | null => {
   }
 };
 
-const runGeminiAnalysis = async (
+const runBackendCopilotAnalysis = async (
   content: string,
   type: 'url' | 'email',
   contextLines: string[] = [],
 ): Promise<ScanResult | null> => {
-  const apiKey = await getStoredGeminiApiKey();
-  if (!apiKey) {
-    return null;
-  }
-
-  const contextBlock = contextLines.length > 0 ? `\nContext:\n- ${contextLines.join('\n- ')}` : '';
-
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: `Analyze the following ${type} for cybersecurity threats and return JSON only.\nInput: "${content}"${contextBlock}`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: { type: Type.STRING },
-            detailedSummary: { type: Type.STRING },
-            confidence: { type: Type.NUMBER },
-            recommendation: { type: Type.STRING },
-            risk: { type: Type.STRING, enum: ['Critical', 'High', 'Medium', 'Low'] },
-            category: { type: Type.STRING, enum: ['Phishing', 'Malware', 'Spoofing', 'Social', 'Other'] },
-            impactScore: { type: Type.NUMBER },
-            mitreTechnique: { type: Type.STRING },
-            mitreTactic: { type: Type.STRING },
-            technicalDetails: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  label: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                },
-                required: ['label', 'description'],
-              },
-            },
-          },
-          required: [
-            'summary',
-            'detailedSummary',
-            'confidence',
-            'recommendation',
-            'risk',
-            'category',
-            'impactScore',
-            'mitreTechnique',
-            'mitreTactic',
-            'technicalDetails',
-          ],
-        },
-      },
-    });
-
-    if (!response.text) {
+    const config = await getResolvedPhishingApiConfig();
+    const baseUrl = config.url.trim().replace(/\/+$/, '');
+    if (!baseUrl) {
       return null;
     }
 
-    return parseGeminiResult(response.text);
+    const response = await fetch(`${baseUrl}/copilot/explain`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content,
+        input_type: type,
+        summary: contextLines.length > 0 ? contextLines.join(' | ') : undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    const risk = (data.risk || 'High') as ScanResult['risk'];
+    const category = (data.category || 'Phishing') as ScanResult['category'];
+    const confidence = clampPercent(Number(data.confidence ?? 85));
+    const technicalDetails =
+      Array.isArray(data.technical_details) && data.technical_details.length > 0
+        ? data.technical_details.map((item: Record<string, unknown>) => ({
+            label: String(item.label || 'Indicator'),
+            description: String(item.description || 'Threat detail'),
+          }))
+        : (data.threat_indicators || []).map((ind: string) => ({
+            label: ind,
+            description: 'Threat indicator flagged by Aegis Copilot Engine.',
+          }));
+
+    return {
+      summary: data.summary || 'Copilot security assessment completed.',
+      detailedSummary: data.detailed_explanation || 'Copilot analyzed threat indicators and behavioral cues.',
+      confidence,
+      recommendation: data.recommended_action || 'Quarantine and review item with caution.',
+      risk,
+      category,
+      impactScore:
+        typeof data.impact_score === 'number'
+          ? data.impact_score
+          : risk === 'Critical'
+            ? 9.5
+            : risk === 'High'
+              ? 7.8
+              : risk === 'Medium'
+                ? 5.2
+                : 2.0,
+      mitreTechnique: data.mitre_technique || 'T1566.001',
+      mitreTactic: data.mitre_tactic || 'Initial Access',
+      technicalDetails:
+        technicalDetails.length > 0
+          ? technicalDetails
+          : [{ label: 'Engine assessment', description: 'Heuristic & Copilot review completed.' }],
+      analysisSource: 'gemini',
+      analysisSourceLabel: data.model ? `Backend Copilot (${data.model})` : 'Backend AI Copilot',
+    };
   } catch {
     return null;
   }
@@ -351,7 +355,7 @@ export const analyzeContent = async (content: string, type: 'url' | 'email'): Pr
         return backendLocalHybrid;
       }
 
-      const geminiSecondOpinion = await runGeminiAnalysis(content, type, [
+      const geminiSecondOpinion = await runBackendCopilotAnalysis(content, type, [
         `Backend phishing probability: ${Math.round(getPhishingProbability(backendResult.detection) * 100)}%`,
         `Local phishing probability: ${Math.round(localIntelligence.phishingProbability * 100)}%`,
         `Backend/local label: ${backendResult.detection.label}`,
@@ -360,50 +364,62 @@ export const analyzeContent = async (content: string, type: 'url' | 'email'): Pr
       if (!geminiSecondOpinion) {
         return {
           ...backendLocalHybrid,
-          analysisSourceLabel: `${backendLocalHybrid.analysisSourceLabel} (Gemini unavailable)`,
+          analysisSourceLabel: `${backendLocalHybrid.analysisSourceLabel} (Copilot offline)`,
         };
       }
 
-      return mergeWithGemini(backendLocalHybrid, geminiSecondOpinion, 'Hybrid AI (Detector + Local + Gemini)');
+      return mergeWithGemini(backendLocalHybrid, geminiSecondOpinion, 'Hybrid AI (Detector + Local + Copilot)');
     }
 
-    const geminiFallback = await runGeminiAnalysis(content, type, [
+    const copilotFallback = await runBackendCopilotAnalysis(content, type, [
       `Local phishing probability: ${Math.round(localIntelligence.phishingProbability * 100)}%`,
       `Local category: ${localBaseline.category}`,
     ]);
-    if (geminiFallback) {
-      return mergeWithGemini(localBaseline, geminiFallback, 'Hybrid AI (Local + Gemini)');
+    if (copilotFallback) {
+      return mergeWithGemini(localBaseline, copilotFallback, 'Hybrid AI (Local + Copilot)');
     }
 
     return localBaseline;
   }
 
-  const geminiResult = await runGeminiAnalysis(content, type, [
+  const copilotResult = await runBackendCopilotAnalysis(content, type, [
     `Local phishing probability: ${Math.round(localIntelligence.phishingProbability * 100)}%`,
     `Local category: ${localBaseline.category}`,
   ]);
 
-  if (geminiResult) {
-    return mergeWithGemini(localBaseline, geminiResult, 'Hybrid AI (Local + Gemini)');
+  if (copilotResult) {
+    return mergeWithGemini(localBaseline, copilotResult, 'Hybrid AI (Local + Copilot)');
   }
 
   return localBaseline;
 };
 
 export const generateResponse = async (threatSummary: string, recommendation: string) => {
-  const apiKey = await getStoredGeminiApiKey();
-  if (!apiKey) {
-    return `Security Alert\n\nThreat summary: ${threatSummary}\n\nRecommended action: ${recommendation}\n\nPlease avoid interacting with the message until security has completed validation.`;
+  try {
+    const config = await getResolvedPhishingApiConfig();
+    const baseUrl = config.url.trim().replace(/\/+$/, '');
+    if (baseUrl) {
+      const response = await fetch(`${baseUrl}/copilot/respond`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          threat_summary: threatSummary,
+          recommendation,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.draft) {
+          return data.draft;
+        }
+      }
+    }
+  } catch {
+    // fallback below
   }
 
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: `Based on this threat analysis:\nThreat: ${threatSummary}\nRecommendation: ${recommendation}\n\nWrite a professional internal security alert email with clear next steps.`,
-    });
-    return response.text || 'Unable to generate response.';
-  } catch {
-    return `Security Alert\n\nThreat summary: ${threatSummary}\n\nRecommended action: ${recommendation}\n\nPlease avoid interacting with the message until security has completed validation.`;
-  }
+  return `Security Alert Notification\n\nThreat summary: ${threatSummary}\n\nRecommended action: ${recommendation}\n\nPlease avoid interacting with the message until security has completed validation.`;
 };

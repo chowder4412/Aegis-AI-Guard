@@ -80,12 +80,9 @@ export const Logs = () => {
     <View style={styles.container}>
       <View style={[styles.header, isDesktop && styles.headerDesktop]}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.eyebrow}>Audit Intelligence</Text>
+          <Text style={styles.eyebrow}>Audit Ledger</Text>
           <Text style={[styles.title, isMobile && styles.titleMobile]}>
-            Threat <Text style={{ color: palette.primaryMuted }}>History.</Text>
-          </Text>
-          <Text style={[styles.body, isMobile && styles.bodyMobile]}>
-            Live audit ledger for completed scans, mitigation actions, and high-risk detections stored in your secure workspace.
+            Threat <Text style={{ color: palette.primaryMuted }}>History</Text>
           </Text>
         </View>
         <View style={[styles.metricCard, isMobile && styles.metricCardMobile]}>
@@ -96,7 +93,6 @@ export const Logs = () => {
 
       <View style={[styles.topControls, isDesktop && styles.topControlsDesktop]}>
         <View style={[styles.filterCard, isDesktop && styles.filterCardDesktop]}>
-          <Text style={styles.filterLabel}>Filter by</Text>
           <View style={styles.filterChips}>
             {(['All', 'Phishing', 'Spoofing', 'Malware', 'Other'] as FilterValue[]).map((item) => (
               <Pressable key={item} onPress={() => setActiveFilter(item)} style={[styles.filterChip, activeFilter === item && styles.filterChipActive]}>
@@ -219,13 +215,13 @@ const styles = StyleSheet.create({
   title: {
     color: palette.onSurface,
     fontFamily: fonts.headlineBold,
-    fontSize: 52,
-    lineHeight: 54,
-    marginTop: 12,
+    fontSize: 36,
+    lineHeight: 40,
+    marginTop: 6,
   },
   titleMobile: {
-    fontSize: 38,
-    lineHeight: 42,
+    fontSize: 28,
+    lineHeight: 32,
   },
   body: {
     color: palette.onSurfaceMuted,

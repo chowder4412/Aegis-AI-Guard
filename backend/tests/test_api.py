@@ -248,6 +248,38 @@ def test_metrics_endpoint_available() -> None:
     assert "routes" in payload
 
 
+def test_copilot_explain_and_respond_endpoints() -> None:
+    client = TestClient(main_module.app)
+
+    # Test /copilot/explain
+    explain_resp = client.post(
+        "/copilot/explain",
+        json={"content": "http://192.168.1.1/login.php?urgent=1", "input_type": "url"},
+    )
+    assert explain_resp.status_code == 200
+    explain_data = explain_resp.json()
+    assert "summary" in explain_data
+    assert "detailed_explanation" in explain_data
+    assert "recommended_action" in explain_data
+    assert "threat_indicators" in explain_data
+    assert explain_data["confidence"] > 0
+    assert explain_data["model"] in {"aegis-copilot-engine", "gemini-1.5-flash"}
+
+    # Test /copilot/respond
+    respond_resp = client.post(
+        "/copilot/respond",
+        json={
+            "threat_summary": "Credential harvesting attack detected on internal portal spoof.",
+            "recommendation": "Quarantine email, revoke session tokens, and block domain.",
+        },
+    )
+    assert respond_resp.status_code == 200
+    respond_data = respond_resp.json()
+    assert "draft" in respond_data
+    assert len(respond_data["draft"]) > 10
+    assert respond_data["model"] in {"aegis-copilot-engine", "gemini-1.5-flash"}
+
+
 def test_readiness_endpoint_available() -> None:
     client = TestClient(main_module.app)
     response = client.get("/readiness")

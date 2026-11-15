@@ -68,10 +68,12 @@ class LinkSandboxAnalyzer:
         enabled: bool,
         timeout_seconds: int,
         reputation_client: SafeBrowsingClient | None = None,
+        sandbox_service_url: str = "",
     ) -> None:
         self.enabled = enabled
         self.timeout_seconds = timeout_seconds
         self.reputation_client = reputation_client
+        self.sandbox_service_url = sandbox_service_url.strip().rstrip("/")
 
     def _ensure_safe_target(self, url: str) -> None:
         parsed = urlparse(url)
@@ -194,10 +196,42 @@ class LinkSandboxAnalyzer:
     async def inspect(self, url: str) -> LinkInspectionResult:
         if not self.enabled:
             raise LinkSandboxError("link sandbox analyzer is disabled")
+
+        self._ensure_safe_target(url)
+
+        # If a decoupled sandbox microservice worker is configured, delegate inspection via HTTP
+        if self.sandbox_service_url:
+            try:
+                import httpx
+
+                async with httpx.AsyncClient(timeout=self.timeout_seconds + 5) as client:
+                    resp = await client.post(
+                        f"{self.sandbox_service_url}/sandbox/inspect-link",
+                        json={"url": url},
+                        headers={"Content-Type": "application/json"},
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return LinkInspectionResult(
+                            analysis_id=data.get("analysis_id", uuid.uuid4().hex),
+                            healthy=data.get("healthy", True),
+                            verdict=data.get("verdict", "safe"),
+                            risk_score=data.get("risk_score", 0),
+                            confidence=data.get("confidence", 0.0),
+                            reasons=data.get("reasons", []),
+                            final_url=data.get("final_url"),
+                            reputation_flagged=data.get("reputation_flagged", False),
+                            credential_form_detected=data.get("credential_form_detected", False),
+                            credential_submission_succeeded=data.get("credential_submission_succeeded", False),
+                            dangerous_download_detected=data.get("dangerous_download_detected", False),
+                        )
+            except Exception as exc:
+                if async_playwright is None:
+                    raise LinkSandboxError(f"sandbox worker error: {exc}") from exc
+
         if async_playwright is None:
             raise LinkSandboxError("Playwright is not installed on the backend")
 
-        self._ensure_safe_target(url)
         analysis_id = uuid.uuid4().hex
         reasons: list[str] = []
         risk_score = 0

@@ -34,6 +34,39 @@ class DetectionResponse(BaseModel):
     model: str
 
 
+class CopilotExplainRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=40_000)
+    input_type: Literal["url", "email"] = "url"
+    risk_level: str | None = None
+    summary: str | None = None
+
+
+class CopilotExplainResponse(BaseModel):
+    summary: str
+    detailed_explanation: str
+    recommended_action: str
+    threat_indicators: list[str]
+    model: str
+    confidence: float | None = None
+    risk: str | None = None
+    category: str | None = None
+    impact_score: float | None = None
+    mitre_technique: str | None = None
+    mitre_tactic: str | None = None
+    technical_details: list[dict[str, str]] | None = None
+
+
+class CopilotRespondRequest(BaseModel):
+    threat_summary: str = Field(min_length=1, max_length=10_000)
+    recommendation: str = Field(min_length=1, max_length=10_000)
+
+
+class CopilotRespondResponse(BaseModel):
+    draft: str
+    model: str
+
+
+
 class LearningFeedbackSignal(BaseModel):
     kind: Literal["lesson", "scenario", "analysis-source", "indicator", "risk", "mailbox"]
     value: str = Field(min_length=1, max_length=200)

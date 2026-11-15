@@ -147,9 +147,10 @@ export const EmailLinker = () => {
         </View>
       ) : (
         <>
-          <Text style={[styles.description, isMobile && styles.descriptionMobile]}>
-            Connect Gmail with native Google consent so the app can run pre-delivery threat shielding: inspect attached links, score legitimacy, and alert you on potential scams before interaction.
-          </Text>
+          <View style={styles.scopeBadgeRow}>
+            <Lock color={palette.secondary} size={12} />
+            <Text style={styles.scopeBadgeText}>Google OAuth 2.0 PKCE (gmail.readonly)</Text>
+          </View>
 
           <Pressable
             disabled={Platform.OS !== 'web' && !gmailRequest}
@@ -168,10 +169,6 @@ export const EmailLinker = () => {
               {Platform.OS === 'web' || gmailRequest ? 'Connect Gmail Securely' : 'Google Auth Unavailable'}
             </Text>
           </Pressable>
-
-          <Text style={styles.oauthHint}>
-            Gmail linking authenticates the mailbox, stores the Gmail session for secure sync, and unlocks actual inbox scanning plus automatic pre-delivery link inspection. Manual mailbox watchlists have been removed from the app.
-          </Text>
 
           {oauthMessage ? (
             <View style={[styles.oauthStatusCard, oauthStatus === 'success' ? styles.oauthStatusSuccess : oauthStatus === 'error' ? styles.oauthStatusError : styles.oauthStatusProcessing]}>
@@ -351,6 +348,24 @@ const styles = StyleSheet.create({
     color: palette.onSurface,
     fontFamily: fonts.bodySemiBold,
     fontSize: 14,
+  },
+  scopeBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(74,225,131,0.06)',
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(74,225,131,0.18)',
+    marginBottom: 6,
+  },
+  scopeBadgeText: {
+    color: palette.secondary,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 11,
   },
   oauthButtonDisabled: {
     opacity: 0.5,

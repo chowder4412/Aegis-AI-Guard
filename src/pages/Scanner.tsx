@@ -67,71 +67,69 @@ export const Scanner = () => {
 
   return (
     <View style={styles.container}>
-      <View>
-        <Text style={[styles.title, isMobile && styles.titleMobile]}>
-          Neural Phishing <Text style={{ color: palette.secondary }}>Analysis.</Text>
-        </Text>
-        <Text style={[styles.body, isMobile && styles.bodyMobile]}>
-          Submit real URLs and email bodies into the detection pipeline. Results are saved to your workspace and drive the dashboard, logs, and threat analytics.
-        </Text>
+      <View style={styles.headerDeck}>
+        <View style={styles.headerLeft}>
+          <Text style={[styles.title, isMobile && styles.titleMobile]}>
+            Threat <Text style={{ color: palette.secondary }}>Scanner</Text>
+          </Text>
+        </View>
+        <View style={styles.hudPillRow}>
+          <View style={[styles.hudPill, phishingApiConfigured ? styles.hudPillSuccess : styles.hudPillWarn]}>
+            <View style={[styles.pillDot, { backgroundColor: phishingApiConfigured ? palette.secondary : palette.error }]} />
+            <Text style={styles.hudPillText}>{phishingApiConfigured ? 'API Online' : 'API Offline'}</Text>
+          </View>
+          <View style={[styles.hudPill, styles.hudPillSuccess]}>
+            <View style={[styles.pillDot, { backgroundColor: palette.secondary }]} />
+            <Text style={styles.hudPillText}>Heuristics Active</Text>
+          </View>
+          <View style={[styles.hudPill, geminiConfigured ? styles.hudPillSuccess : styles.hudPillNeutral]}>
+            <View style={[styles.pillDot, { backgroundColor: geminiConfigured ? palette.secondary : palette.primaryMuted }]} />
+            <Text style={styles.hudPillText}>{geminiConfigured ? 'Copilot Ready' : 'Copilot Standby'}</Text>
+          </View>
+        </View>
       </View>
 
       <View style={[styles.grid, isDesktop && styles.gridDesktop]}>
         <View style={[styles.mainCard, isMobile && styles.mainCardMobile, isDesktop && styles.mainCardDesktop]}>
-          <View style={styles.backgroundIcon}>
-            <SearchCode color="rgba(225,226,235,0.08)" size={120} />
-          </View>
-          <Text style={styles.eyebrow}>Security Ingestion Interface</Text>
-          <View style={styles.coachingCard}>
-            <View style={styles.coachingHeader}>
-              <BrainCircuit color={palette.secondary} size={18} />
-              <Text style={styles.coachingEyebrow}>{coachingInsight.eyebrow}</Text>
-            </View>
-            <Text style={styles.coachingTitle}>{coachingInsight.title}</Text>
-            <Text style={styles.coachingBody}>{coachingInsight.body}</Text>
-            <Text style={styles.coachingAction}>{coachingInsight.actionLabel}</Text>
-          </View>
           <ManualScan />
         </View>
 
         <View style={[styles.sideColumn, isDesktop && styles.sideColumnDesktop]}>
           <View style={styles.sideCard}>
-            <Text style={[styles.sideTitle, isMobile && styles.sideTitleMobile]}>Live Diagnostics</Text>
+            <Text style={[styles.sideTitle, isMobile && styles.sideTitleMobile]}>System Diagnostics</Text>
             <View style={styles.diagnosticsList}>
               {[
                 {
                   label: 'Detector API',
-                  sub: phishingApiStatusLabel,
-                  icon: phishingApiConfigured ? CheckCircle2 : CloudOff,
+                  status: phishingApiConfigured ? 'Online' : 'Offline',
                   color: phishingApiConfigured ? palette.secondary : palette.error,
+                  icon: phishingApiConfigured ? CheckCircle2 : CloudOff,
                 },
                 {
-                  label: 'Local Intelligence',
-                  sub: 'Always active for on-device threat scoring and explainability',
-                  icon: CheckCircle2,
+                  label: 'Client Heuristics',
+                  status: 'Active',
                   color: palette.secondary,
+                  icon: CheckCircle2,
                 },
                 {
-                  label: 'Gemini Copilot',
-                  sub: geminiConfigured ? 'Available as a copilot for URL scans and escalated email reviews' : 'No Gemini key detected for this session',
-                  icon: geminiConfigured ? RefreshCw : CloudOff,
-                  color: geminiConfigured ? palette.secondary : palette.primaryMuted,
+                  label: 'Dynamic Sandbox',
+                  status: 'Armed',
+                  color: palette.secondary,
+                  icon: CheckCircle2,
                 },
                 {
                   label: 'Recent Source',
-                  sub: recentSource,
-                  icon: BarChart3,
+                  status: recentSource,
                   color: palette.primaryMuted,
+                  icon: BarChart3,
                 },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
                   <View key={item.label} style={styles.diagnosticRow}>
-                    <Icon color={item.color} size={18} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.diagnosticTitle}>{item.label}</Text>
-                      <Text style={styles.diagnosticBody}>{item.sub}</Text>
-                    </View>
+                    <Icon color={item.color} size={16} />
+                    <Text style={styles.diagnosticTitle}>{item.label}</Text>
+                    <Text style={[styles.diagnosticStatus, { color: item.color }]}>{item.status}</Text>
                   </View>
                 );
               })}
@@ -141,8 +139,8 @@ export const Scanner = () => {
           <View style={styles.metricCard}>
             <View style={styles.metricHeader}>
               <View style={styles.metricTitleRow}>
-                <BarChart3 color={palette.primaryMuted} size={14} />
-                <Text style={styles.metricLabel}>Blocked Findings</Text>
+                <BarChart3 color={palette.secondary} size={16} />
+                <Text style={styles.metricLabel}>Blocked Threats</Text>
               </View>
               <Text style={styles.metricValue}>{blockedCount}</Text>
             </View>
@@ -158,33 +156,68 @@ export const Scanner = () => {
 
 const styles = StyleSheet.create({
   container: {
-    gap: 24,
+    gap: 20,
     width: '100%',
     maxWidth: 1320,
     alignSelf: 'center',
   },
+  headerDeck: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  hudPillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  hudPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  hudPillSuccess: {
+    backgroundColor: 'rgba(74,225,131,0.08)',
+    borderColor: 'rgba(74,225,131,0.22)',
+  },
+  hudPillWarn: {
+    backgroundColor: 'rgba(255,107,107,0.08)',
+    borderColor: 'rgba(255,107,107,0.22)',
+  },
+  hudPillNeutral: {
+    backgroundColor: 'rgba(196,198,204,0.08)',
+    borderColor: 'rgba(196,198,204,0.18)',
+  },
+  hudPillText: {
+    color: palette.onSurface,
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 12,
+  },
+  pillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+  },
   title: {
     color: palette.primary,
     fontFamily: fonts.headlineBold,
-    fontSize: 48,
-    lineHeight: 50,
+    fontSize: 36,
+    lineHeight: 40,
   },
   titleMobile: {
-    fontSize: 34,
-    lineHeight: 38,
-  },
-  body: {
-    color: palette.onSurfaceMuted,
-    fontFamily: fonts.body,
-    fontSize: 17,
-    lineHeight: 25,
-    marginTop: 12,
-    maxWidth: 620,
-  },
-  bodyMobile: {
-    fontSize: 15,
-    lineHeight: 22,
-    maxWidth: undefined,
+    fontSize: 28,
+    lineHeight: 32,
   },
   grid: {
     gap: 18,
@@ -288,20 +321,18 @@ const styles = StyleSheet.create({
   },
   diagnosticRow: {
     flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
+    gap: 10,
+    alignItems: 'center',
   },
   diagnosticTitle: {
     color: palette.onSurface,
     fontFamily: fonts.bodySemiBold,
-    fontSize: 16,
+    fontSize: 14,
+    flex: 1,
   },
-  diagnosticBody: {
-    color: palette.onSurfaceMuted,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    marginTop: 4,
-    lineHeight: 19,
+  diagnosticStatus: {
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 12,
   },
   metricCard: {
     backgroundColor: palette.surfaceLow,

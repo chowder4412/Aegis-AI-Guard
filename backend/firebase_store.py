@@ -323,7 +323,7 @@ class FirebaseMailboxStore:
         return now
 
     def get_learning_status(self, uid: str) -> dict[str, Any]:
-        if not self.enabled or not self._client:
+        if not self.enabled or not self._client or not hasattr(self._client, "collection"):
             return {
                 "status": "disabled",
                 "continuous_learning_enabled": False,
@@ -364,3 +364,39 @@ class FirebaseMailboxStore:
             "latest_feedback_at": latest_feedback_at,
             "sources": sources,
         }
+
+    def save_sandbox_job(self, job_id: str, data: dict[str, Any]) -> None:
+        if not self.enabled:
+            return
+        try:
+            self._client.collection("sandboxJobs").document(job_id).set(data)
+        except Exception:
+            pass
+
+    def get_sandbox_job(self, job_id: str) -> dict[str, Any] | None:
+        if not self.enabled:
+            return None
+        try:
+            doc = self._client.collection("sandboxJobs").document(job_id).get()
+            if doc.exists:
+                return doc.to_dict()
+        except Exception:
+            pass
+        return None
+
+    def update_sandbox_job(self, job_id: str, updates: dict[str, Any]) -> None:
+        if not self.enabled:
+            return
+        try:
+            self._client.collection("sandboxJobs").document(job_id).update(updates)
+        except Exception:
+            pass
+
+    def record_retraining_event(self, uid: str, event_data: dict[str, Any]) -> None:
+        if not self.enabled or not self._client:
+            return
+        try:
+            self._client.collection("users").document(uid).collection("retrainingEvents").document().set(event_data)
+        except Exception:
+            pass
+

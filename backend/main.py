@@ -65,6 +65,7 @@ link_sandbox = LinkSandboxAnalyzer(
     enabled=settings.link_sandbox_enabled,
     timeout_seconds=settings.link_sandbox_timeout_seconds,
     reputation_client=safe_browsing,
+    sandbox_service_url=settings.sandbox_service_url,
 )
 gmail_mailbox_scanner = BackendGmailMailboxScanner(
     detector=detector,
@@ -75,8 +76,13 @@ gmail_mailbox_scanner = BackendGmailMailboxScanner(
 )
 sandbox_queue = SandboxQueue(
     link_sandbox,
+    store=mailbox_store,
     max_concurrency=settings.link_sandbox_concurrency,
     job_ttl_seconds=settings.link_sandbox_job_ttl_seconds,
+    cloud_tasks_project=settings.cloud_tasks_project,
+    cloud_tasks_location=settings.cloud_tasks_location,
+    cloud_tasks_queue=settings.cloud_tasks_queue,
+    redis_url=settings.redis_url,
 )
 detonation_client = DetonationServiceClient(
     enabled=settings.detonation_enabled,

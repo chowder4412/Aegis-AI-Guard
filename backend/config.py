@@ -40,6 +40,12 @@ class Settings:
     allowed_cors_origins: tuple[str, ...]
     firebase_service_account_path: str
     firebase_storage_database_url: str
+    gemini_api_key: str = ""
+    cloud_tasks_project: str = ""
+    cloud_tasks_location: str = ""
+    cloud_tasks_queue: str = ""
+    redis_url: str = ""
+    sandbox_service_url: str = ""
 
 
 def _split_csv(value: str) -> tuple[str, ...]:
@@ -157,4 +163,10 @@ def get_settings() -> Settings:
         ),
         firebase_service_account_path=os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", ""),
         firebase_storage_database_url=os.getenv("FIREBASE_STORAGE_DATABASE_URL", ""),
+        gemini_api_key=os.getenv("GEMINI_API_KEY", "") or os.getenv("EXPO_PUBLIC_GEMINI_API_KEY", ""),
+        cloud_tasks_project=os.getenv("CLOUD_TASKS_PROJECT", os.getenv("GOOGLE_CLOUD_PROJECT", "")),
+        cloud_tasks_location=os.getenv("CLOUD_TASKS_LOCATION", "us-central1"),
+        cloud_tasks_queue=os.getenv("CLOUD_TASKS_QUEUE", ""),
+        redis_url=os.getenv("REDIS_URL", ""),
+        sandbox_service_url=os.getenv("SANDBOX_SERVICE_URL", ""),
     )
