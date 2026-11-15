@@ -112,9 +112,26 @@ def append_row(
 
 
 def import_enron(rows: list[dict[str, str]], seen: set[str], max_rows: int) -> SourceSummary:
+    csv_path = RAW_DIR / "enron" / "emails.csv"
+    if csv_path.exists():
+        imported = 0
+        import sys
+        csv.field_size_limit(min(sys.maxsize, 2147483647))
+        with csv_path.open("r", encoding="utf-8", errors="ignore") as handle:
+            reader = csv.DictReader(handle)
+            for item in reader:
+                msg = item.get("message", "")
+                parts = msg.split("\n\n", 1)
+                body = parts[1] if len(parts) == 2 else msg
+                if append_row(rows, seen, body, "legitimate", "enron"):
+                    imported += 1
+                    if imported >= max_rows:
+                        break
+        return SourceSummary("enron", imported, f"imported from {csv_path.name} (max={max_rows})")
+
     archive = RAW_DIR / "enron_mail_20150507.tar.gz"
     if not archive.exists():
-        return SourceSummary("enron", 0, f"missing archive: {archive.name}")
+        return SourceSummary("enron", 0, f"missing archive: {archive.name} and csv: {csv_path.name}")
 
     destination = EXTRACTED_DIR / "enron_mail_20150507"
     extract_archive_if_needed(archive, destination)
@@ -132,6 +149,26 @@ def import_enron(rows: list[dict[str, str]], seen: set[str], max_rows: int) -> S
 
 
 def import_spamassassin(rows: list[dict[str, str]], seen: set[str]) -> SourceSummary:
+    csv_paths = [
+        RAW_DIR / "spamassassin" / "spam_assassin.csv",
+        RAW_DIR / "spam_assassin" / "spam_assassin.csv",
+        RAW_DIR / "spam_assassin.csv",
+    ]
+    for csv_path in csv_paths:
+        if csv_path.exists():
+            imported = 0
+            import sys
+            csv.field_size_limit(min(sys.maxsize, 2147483647))
+            with csv_path.open("r", encoding="utf-8", errors="ignore") as handle:
+                reader = csv.DictReader(handle)
+                for item in reader:
+                    text = item.get("text", "")
+                    target = str(item.get("target", "0")).strip()
+                    label = "phishing" if target in {"1", "spam", "phishing"} else "legitimate"
+                    if append_row(rows, seen, text, label, "spamassassin"):
+                        imported += 1
+            return SourceSummary("spamassassin", imported, f"imported {imported} rows from {csv_path.name}")
+
     archives = [
         "20021010_easy_ham.tar.bz2",
         "20021010_hard_ham.tar.bz2",

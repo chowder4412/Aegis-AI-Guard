@@ -1,7 +1,7 @@
 {
-  "dataset": "C:\\Users\\user\\Desktop\\Aegis-Ai-Guard\\backend\\data\\processed\\phishing_training_dataset.csv",
-  "train_rows": 69031,
-  "test_rows": 17258,
+  "dataset": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\backend\\data\\processed\\phishing_training_dataset.csv",
+  "train_rows": 8263,
+  "test_rows": 2066,
   "models": {
     "baseline": {
       "params": {
@@ -9,22 +9,22 @@
         "random_state": 42
       },
       "metrics": {
-        "accuracy": 0.9820373160273497,
-        "phishing_precision": 0.8888888888888888,
-        "phishing_recall": 0.19302949061662197,
-        "phishing_f1": 0.31718061674008813,
+        "accuracy": 0.9215876089060987,
+        "phishing_precision": 0.7430939226519337,
+        "phishing_recall": 0.7958579881656804,
+        "phishing_f1": 0.7685714285714286,
         "confusion_matrix": [
           [
-            16876,
-            9
+            1635,
+            93
           ],
           [
-            301,
-            72
+            69,
+            269
           ]
         ]
       },
-      "artifact": "C:\\Users\\user\\Desktop\\Aegis-Ai-Guard\\backend\\models\\phishing_model.pkl"
+      "artifact": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\backend\\models\\phishing_model.pkl"
     },
     "balanced": {
       "params": {
@@ -37,22 +37,22 @@
         "random_state": 42
       },
       "metrics": {
-        "accuracy": 0.9823849808784332,
-        "phishing_precision": 0.6123778501628665,
-        "phishing_recall": 0.5040214477211796,
-        "phishing_f1": 0.5529411764705883,
+        "accuracy": 0.9399806389157793,
+        "phishing_precision": 0.7845744680851063,
+        "phishing_recall": 0.8727810650887574,
+        "phishing_f1": 0.8263305322128851,
         "confusion_matrix": [
           [
-            16766,
-            119
+            1647,
+            81
           ],
           [
-            185,
-            188
+            43,
+            295
           ]
         ]
       },
-      "artifact": "C:\\Users\\user\\Desktop\\Aegis-Ai-Guard\\backend\\models\\phishing_model_balanced.pkl"
+      "artifact": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\backend\\models\\phishing_model_balanced.pkl"
     }
   }
 }
