@@ -165,7 +165,9 @@ def import_spamassassin(rows: list[dict[str, str]], seen: set[str]) -> SourceSum
                     text = item.get("text", "")
                     target = str(item.get("target", "0")).strip()
                     label = "phishing" if target in {"1", "spam", "phishing"} else "legitimate"
-                    if append_row(rows, seen, text, label, "spamassassin"):
+                    parts = text.split("\n\n", 1)
+                    body = parts[1] if len(parts) == 2 else text
+                    if append_row(rows, seen, body, label, "spamassassin"):
                         imported += 1
             return SourceSummary("spamassassin", imported, f"imported {imported} rows from {csv_path.name}")
 
