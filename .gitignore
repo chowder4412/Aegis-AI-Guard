@@ -44,9 +44,15 @@ uvicorn-*.log
 # Native build artifacts
 android/app/debug.keystore
 
-# Generated training datasets
+# Raw training datasets (keep folder structure & data/processed in git, ignore large raw files)
+data/raw/*
+!data/raw/README.md
+!data/raw/enron/
+data/raw/enron/*
+!data/raw/enron/.gitkeep
+!data/raw/spamassassin/
+data/raw/spamassassin/*
+!data/raw/spamassassin/.gitkeep
 backend/data/raw/
 backend/data/processed/
-data/
-/data/
 models/

@@ -10,9 +10,11 @@ from pathlib import Path
 from typing import Iterator
 
 
-ROOT = Path(__file__).resolve().parents[1]
-RAW_DIR = ROOT / "data" / "raw"
-PROCESSED_DIR = ROOT / "data" / "processed"
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = REPO_ROOT / "data" if (REPO_ROOT / "data").exists() else BACKEND_ROOT / "data"
+RAW_DIR = DATA_DIR / "raw"
+PROCESSED_DIR = DATA_DIR / "processed"
 EXTRACTED_DIR = RAW_DIR / "extracted"
 
 

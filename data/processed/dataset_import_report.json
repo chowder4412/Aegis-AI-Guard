@@ -1,0 +1,30 @@
+{
+  "total_rows": 10329,
+  "sources": [
+    {
+      "source": "enron",
+      "imported_rows": 5000,
+      "note": "imported from emails.csv (max=5000)"
+    },
+    {
+      "source": "spamassassin",
+      "imported_rows": 5329,
+      "note": "imported 5329 rows from spam_assassin.csv"
+    },
+    {
+      "source": "huggingface",
+      "imported_rows": 0,
+      "note": "missing file: hf_phishing_benign_dataset.jsonl"
+    },
+    {
+      "source": "zenodo",
+      "imported_rows": 0,
+      "note": "record contains publication PDF only; no email rows available"
+    },
+    {
+      "source": "sting9",
+      "imported_rows": 0,
+      "note": "public repo has no downloadable dataset rows yet"
+    }
+  ]
+}

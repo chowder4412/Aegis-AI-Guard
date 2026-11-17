@@ -11,4 +11,5 @@ expo-web.log
 firebase-debug.log
 backend/.env
 backend/data/raw
+data/raw
 backend/tests
