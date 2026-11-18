@@ -28,6 +28,7 @@ DATASET_SPECS = [
     {
         "key": "supabros",
         "name": "Supabros Phishing Telemetry Dataset v2",
+        "kind": "xlsx",
         "path": RAW_DIR / "supabros" / "supabros.xlsx",
         "sheet": "Supabros_Phishing_Dataset",
         "id_col": "email_id",
@@ -35,8 +36,19 @@ DATASET_SPECS = [
         "multi_col": "attack_vector_category",
     },
     {
+        "key": "supabros_batches",
+        "name": "Supabros Phish Detecter CSV Batches (1-4)",
+        "kind": "csv_glob",
+        "path": RAW_DIR / "supabros",
+        "pattern": "supabros_phish_detecter_batch_*.csv",
+        "id_col": "id",
+        "binary_col": "label",
+        "multi_col": "vector",
+    },
+    {
         "key": "supamustea",
         "name": "Supamustea Advanced Phish Detecter Corpus",
+        "kind": "xlsx",
         "path": RAW_DIR / "supabros" / "supamustea.xlsx",
         "sheet": "supamustea",
         "id_col": "record_id",
@@ -60,10 +72,21 @@ def read_excel_fast(path: Path, sheet_name: str) -> pd.DataFrame:
 
 def evaluate_dataset(spec: dict[str, object]) -> dict[str, object]:
     path: Path = spec["path"]  # type: ignore[assignment]
-    if not path.exists():
-        return {"name": spec["name"], "status": "missing", "path": str(path)}
+    kind = str(spec.get("kind", "xlsx"))
 
-    df = read_excel_fast(path, str(spec["sheet"]))
+    if kind == "csv_glob":
+        pattern = str(spec["pattern"])
+        matched = sorted(path.glob(pattern)) if path.exists() else []
+        if not matched:
+            return {"name": spec["name"], "status": "missing", "path": str(path / pattern)}
+        df = pd.concat([pd.read_csv(f) for f in matched], ignore_index=True)
+        resolved_path = f"{path / pattern} ({len(matched)} files)"
+    else:
+        if not path.exists():
+            return {"name": spec["name"], "status": "missing", "path": str(path)}
+        df = read_excel_fast(path, str(spec["sheet"]))
+        resolved_path = str(path)
+
     drop_cols = [str(spec["id_col"]), str(spec["binary_col"]), str(spec["multi_col"])]
     X = df.drop(columns=[c for c in drop_cols if c in df.columns])
     y_bin = df[str(spec["binary_col"])]
@@ -79,15 +102,15 @@ def evaluate_dataset(spec: dict[str, object]) -> dict[str, object]:
     yb_pred = dt_bin.predict(X_test)
     ym_pred = dt_multi.predict(X_test)
 
-    if spec["key"] == "supamustea":
+    if spec["key"] in {"supamustea", "supabros_batches"}:
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        joblib.dump(dt_bin, MODELS_DIR / "supamustea_dt_binary.pkl")
-        joblib.dump(dt_multi, MODELS_DIR / "supamustea_dt_multiclass.pkl")
+        joblib.dump(dt_bin, MODELS_DIR / f"{spec['key']}_dt_binary.pkl")
+        joblib.dump(dt_multi, MODELS_DIR / f"{spec['key']}_dt_multiclass.pkl")
 
     return {
         "key": spec["key"],
         "name": spec["name"],
-        "path": str(path),
+        "path": resolved_path,
         "rows": int(len(df)),
         "features": int(X.shape[1]),
         "classes": int(y_multi.nunique()),
