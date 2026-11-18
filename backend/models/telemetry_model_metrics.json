@@ -1,0 +1,43 @@
+{
+  "datasets": [
+    {
+      "key": "lawal",
+      "name": "Lawal Modern Phishing ML Dataset",
+      "path": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\data\\raw\\lawal\\Modern_Phishing_Detection_ML_Dataset.xlsx",
+      "rows": 1500,
+      "features": 31,
+      "classes": 7,
+      "binary_accuracy": 0.99,
+      "binary_precision": 0.9811,
+      "binary_recall": 1.0,
+      "binary_f1": 0.9905,
+      "multiclass_accuracy": 0.96
+    },
+    {
+      "key": "supabros",
+      "name": "Supabros Phishing Telemetry Dataset v2",
+      "path": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\data\\raw\\Supabros\\supabros.xlsx",
+      "rows": 22500,
+      "features": 45,
+      "classes": 12,
+      "binary_accuracy": 1.0,
+      "binary_precision": 1.0,
+      "binary_recall": 1.0,
+      "binary_f1": 1.0,
+      "multiclass_accuracy": 0.9729
+    },
+    {
+      "key": "supamustea",
+      "name": "Supamustea Advanced Phish Detecter Corpus",
+      "path": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\data\\raw\\Supabros\\supamustea.xlsx",
+      "rows": 210000,
+      "features": 62,
+      "classes": 16,
+      "binary_accuracy": 1.0,
+      "binary_precision": 1.0,
+      "binary_recall": 1.0,
+      "binary_f1": 1.0,
+      "multiclass_accuracy": 0.8509
+    }
+  ]
+}

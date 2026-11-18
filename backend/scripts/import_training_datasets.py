@@ -245,9 +245,89 @@ def import_sting9_reference() -> SourceSummary:
     return SourceSummary("sting9", 0, "public repo has no downloadable dataset rows yet")
 
 
+def inspect_telemetry_workbook(
+    source_name: str,
+    workbook_path: Path,
+    sheet_name: str,
+) -> dict[str, object]:
+    if not workbook_path.exists():
+        return {
+            "source": source_name,
+            "path": str(workbook_path),
+            "present": False,
+            "rows": 0,
+            "columns": 0,
+            "note": f"missing workbook: {workbook_path.name}",
+        }
+
+    try:
+        import openpyxl
+
+        wb = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+        ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb[wb.sheetnames[0]]
+        row_count = max(0, (ws.max_row or 1) - 1)
+        col_count = ws.max_column or 0
+        active_sheet = ws.title
+        wb.close()
+        return {
+            "source": source_name,
+            "path": str(workbook_path),
+            "sheet": active_sheet,
+            "present": True,
+            "rows": int(row_count),
+            "columns": int(col_count),
+            "size_mb": round(workbook_path.stat().st_size / (1024 * 1024), 2),
+            "note": f"structured telemetry workbook ({row_count:,} rows x {col_count} cols)",
+        }
+    except Exception as exc:
+        return {
+            "source": source_name,
+            "path": str(workbook_path),
+            "present": True,
+            "rows": 0,
+            "columns": 0,
+            "note": f"workbook present but could not inspect via openpyxl: {exc}",
+        }
+
+
+def inspect_telemetry_sources() -> list[dict[str, object]]:
+    specs = [
+        ("lawal", RAW_DIR / "lawal" / "Modern_Phishing_Detection_ML_Dataset.xlsx", "Phishing_ML_Dataset"),
+        ("supabros", RAW_DIR / "supabros" / "supabros.xlsx", "Supabros_Phishing_Dataset"),
+        ("supamustea", RAW_DIR / "supabros" / "supamustea.xlsx", "supamustea"),
+    ]
+    results = [inspect_telemetry_workbook(name, path, sheet) for name, path, sheet in specs]
+    batch_files = sorted((RAW_DIR / "supabros").glob("supabros_phish_detecter_batch_*.csv"))
+    if batch_files:
+        total_batch_rows = 0
+        col_count = 0
+        total_mb = 0.0
+        for bf in batch_files:
+            total_mb += bf.stat().st_size / (1024 * 1024)
+            with bf.open("r", encoding="utf-8", errors="ignore") as handle:
+                header = handle.readline()
+                if not col_count and header:
+                    col_count = len(header.strip().split(","))
+                total_batch_rows += sum(1 for _ in handle)
+        results.append(
+            {
+                "source": "supabros_batches",
+                "path": str(RAW_DIR / "supabros" / "supabros_phish_detecter_batch_*.csv"),
+                "present": True,
+                "files": len(batch_files),
+                "rows": total_batch_rows,
+                "columns": col_count,
+                "size_mb": round(total_mb, 2),
+                "note": f"{len(batch_files)} telemetry CSV batches ({total_batch_rows:,} rows x {col_count} cols)",
+            }
+        )
+    return results
+
+
 def write_outputs(
     rows: list[dict[str, str]],
     summaries: list[SourceSummary],
+    telemetry_sources: list[dict[str, object]],
     output_csv: Path,
     output_report: Path,
 ) -> None:
@@ -269,6 +349,7 @@ def write_outputs(
             }
             for item in summaries
         ],
+        "telemetry_datasets": telemetry_sources,
     }
     output_report.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
@@ -285,15 +366,20 @@ def main() -> None:
     summaries.append(import_zenodo_reference())
     summaries.append(import_sting9_reference())
 
+    telemetry_sources = inspect_telemetry_sources()
+
     output_csv = Path(args.output)
     output_report = Path(args.report_output)
-    write_outputs(rows, summaries, output_csv, output_report)
+    write_outputs(rows, summaries, telemetry_sources, output_csv, output_report)
 
-    print(f"Imported rows: {len(rows)}")
+    print(f"Imported text corpus rows: {len(rows)}")
     print(f"Training CSV: {output_csv}")
     print(f"Import report: {output_report}")
     for item in summaries:
         print(f"- {item.source}: {item.imported_rows} ({item.note})")
+    print("Structured Telemetry Workbooks:")
+    for item in telemetry_sources:
+        print(f"- {item['source']}: {item['rows']} rows x {item['columns']} cols ({item['note']})")
 
 
 if __name__ == "__main__":

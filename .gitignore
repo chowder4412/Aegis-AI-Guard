@@ -44,7 +44,7 @@ uvicorn-*.log
 # Native build artifacts
 android/app/debug.keystore
 
-# Raw training datasets (keep folder structure & data/processed in git, ignore large raw files)
+# Raw training datasets (keep folder structure, lawal, Supabros & data/processed in git; ignore Enron & SpamAssassin raw files)
 data/raw/*
 !data/raw/README.md
 !data/raw/enron/
@@ -53,6 +53,12 @@ data/raw/enron/*
 !data/raw/spamassassin/
 data/raw/spamassassin/*
 !data/raw/spamassassin/.gitkeep
+!data/raw/lawal/
+!data/raw/lawal/**
+!data/raw/supabros/
+!data/raw/supabros/**
+!data/raw/Supabros/
+!data/raw/Supabros/**
 backend/data/raw/
 backend/data/processed/
-models/
+/models/

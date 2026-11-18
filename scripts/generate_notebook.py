@@ -45,32 +45,33 @@ def create_notebook():
 ---
 
 > **Project Title**: Aegis AI Guard — Autonomous Cybersecurity Threat Detection Platform  
-> **Core Algorithm**: Supervised Machine Learning (Decision Tree Classifier with Class-Weighted Optimization)  
-> **Target Problem**: Binary Phishing vs. Legitimate Email Detection  
-> **Primary Datasets**: **Apache SpamAssassin Public Corpus** & **Enron Corporate Email Corpus**  
+> **Core Algorithm**: Supervised Machine Learning (Decision Tree Classifier with Class-Weighted Optimization & Multi-Class Telemetry Classification)  
+> **Target Problem**: Binary Phishing vs. Legitimate Email Detection + 16-Class Modern Attack Vector Classification  
+> **Primary Datasets**: **Apache SpamAssassin**, **Enron Corporate Corpus**, **Lawal Modern Phishing ML Dataset**, **Supabros v2**, & **Supamustea Advanced Phish Detecter (210K)**  
 > **Authors**: Aegis AI Guard Engineering Team  
-> **Purpose**: This notebook provides an interactive environment designed for Google Colab and Jupyter Notebook to **test, verify, train, evaluate, and defend** the core machine-learning model powering the Aegis AI Guard backend.
+> **Purpose**: This notebook provides an interactive environment designed for Google Colab and Jupyter Notebook to **test, verify, train, evaluate, and defend** the core machine-learning models powering the Aegis AI Guard backend.
 
 ---
 
 ### 📋 Overview of the Supervisor Demonstration
 Your supervisor requested to see the raw machine-learning experiment running live in Python:
-1. **Dataset Ingestion**: Calling the dataset into the programming environment, inspecting dimensions, `.head()`, schema, and class distribution.
+1. **Dataset Ingestion**: Calling all legacy & modern 2026 datasets (`SpamAssassin`, `Enron`, `lawal`, `Supabros`, and `supamustea`) into the programming environment, inspecting dimensions, `.head()`, schema, and class distribution.
 2. **Feature Engineering**: Extracting the **7 cyber-heuristic features** that distinguish phishing from benign emails.
 3. **Data Splitting**: Splitting the dataset into an **80% training set** and a **20% testing set** with stratified sampling.
 4. **Model Fitting**: Training the Decision Tree Classifier with `.fit()`, comparing Baseline vs. Class-Balanced parameters.
 5. **Empirical Evaluation**: Measuring Accuracy, Precision, Recall, F1-Score, and plotting Confusion Matrices and Feature Importances.
 6. **Model Serialization**: Saving the model to `phishing_model.pkl` with `joblib` for direct deployment to the FastAPI backend.
 7. **Live Interactive Ingestion**: Testing raw email inputs live.
-8. **Supervisor Defence Guide**: Anticipated viva questions, mathematical formulations, and defensive rationale.""")
+8. **Modern Telemetry Benchmarking (`lawal`, `Supabros`, `supamustea`)**: Multi-dataset binary & 16-class Decision Tree evaluation across 31–62 advanced telemetry features.
+9. **Supervisor Defence Guide**: Anticipated viva questions, mathematical formulations, and defensive rationale.""")
 
     # CELL 2: ENVIRONMENT SETUP
     add_md("""---
 ## Step 0: Environment Setup & Library Installation
-We install and import the required standard machine-learning and data science packages: `pandas`, `numpy`, `scikit-learn`, `joblib`, `matplotlib`, and `seaborn`.""")
+We install and import the required standard machine-learning and data science packages: `pandas`, `numpy`, `scikit-learn`, `joblib`, `matplotlib`, `seaborn`, `openpyxl`, and `xlsxwriter`.""")
 
     add_code("""# Run this cell to install dependencies in Google Colab or your local Jupyter environment
-!pip install -q pandas numpy scikit-learn joblib matplotlib seaborn
+!pip install -q pandas numpy scikit-learn joblib matplotlib seaborn openpyxl xlsxwriter
 
 import os
 import re
@@ -114,9 +115,15 @@ print("✅ All machine-learning libraries successfully imported.")""")
    - 5,796 benchmark messages containing real-world phishing emails (`target=1`) and verified ham/benign messages (`target=0`).
 2. **Enron Enterprise Email Corpus** (`data/raw/enron/emails.csv`):
    - 517,401 real-world legitimate corporate communications (`label=0`).
-3. **Aegis Consolidated Training Dataset** (`data/processed/phishing_training_dataset.csv`):
-   - 10,329 cleaned, de-duplicated and balanced records imported directly by `python -m backend.scripts.import_training_datasets`.
-4. **Hugging Face / Colab Cloud Ingestion**:
+3. **Lawal Modern Phishing ML Dataset** (`data/raw/lawal/Modern_Phishing_Detection_ML_Dataset.xlsx`):
+   - 1,500 structured modern phishing telemetry records across 31 engineered features (SPF/DKIM/DMARC, QR Quishing, OAuth2, BEC, GenAI stylometry).
+4. **Supabros Phishing Telemetry Dataset v2** (`data/raw/supabros/supabros.xlsx` + `supabros_phish_detecter_batch_1..4.csv`):
+   - 22,500 structured records across 45 telemetry features spanning 12 modern attack vector categories (plus 4 CSV batches of 50,000 rows each = 200,000 telemetry rows).
+5. **Supamustea Advanced Phish Detecter Corpus** (`data/raw/supabros/supamustea.xlsx`):
+   - 210,000 fresh telemetry records across 62 advanced features (65 total columns) covering 16 classes (95,000 benign + 115,000 across 15 modern phishing vectors including AiTM MFA bypass, LLM spear-phishing, OAuth2 device-code, Quishing, HTML/SVG smuggling, Web3 drainer, deepfake bait).
+6. **Aegis Consolidated Text Training Dataset** (`data/processed/phishing_training_dataset.csv`):
+   - 10,329 cleaned, header-stripped, de-duplicated text records imported by `python -m backend.scripts.import_training_datasets`.
+7. **Hugging Face / Colab Cloud Ingestion**:
    - `ansulev/phishing-email-dataset` fallback for 1-click execution in Google Colab when run without local disk files.
 
 The cells below inspect each raw dataset individually in the programming environment, followed by the integrated training corpus.""")
@@ -183,7 +190,110 @@ if enron_sample is not None:
 else:
     print("ℹ️ Enron raw CSV not found locally (will use consolidated or cloud corpus).")""")
 
-    add_code("""# Step 1.3: Load the Consolidated Training Dataset (Aegis Training Pipeline)
+    add_code("""# Step 1.3: Inspect Raw Benchmark 3 — Lawal Modern Phishing ML Dataset
+LAWAL_PATHS = [
+    "data/raw/lawal/Modern_Phishing_Detection_ML_Dataset.xlsx",
+    "backend/data/raw/lawal/Modern_Phishing_Detection_ML_Dataset.xlsx",
+    "Modern_Phishing_Detection_ML_Dataset.xlsx",
+]
+
+lawal_df = None
+lawal_path_found = None
+for p in LAWAL_PATHS:
+    if os.path.exists(p):
+        lawal_path_found = p
+        lawal_df = pd.read_excel(p, sheet_name="Phishing_ML_Dataset", engine="openpyxl")
+        break
+
+if lawal_df is not None:
+    print("=" * 80)
+    print("📂 [RAW DATASET 3] Lawal Modern Phishing ML Dataset (2026 Telemetry)")
+    print(f"• File Location:      {lawal_path_found}")
+    print(f"• Dataset Dimensions: {lawal_df.shape[0]:,} rows × {lawal_df.shape[1]} columns")
+    print(f"• Attack Categories:  {lawal_df['attack_vector_category'].nunique()} unique classes")
+    print(f"• Class Breakdown:    Benign (0) = {(lawal_df['is_phishing']==0).sum():,}, Phishing (1) = {(lawal_df['is_phishing']==1).sum():,}")
+    print("=" * 80)
+    print("\\n🔍 First 3 Lawal Records [lawal_df.head(3)]:")
+    display(lawal_df.head(3))
+else:
+    print("ℹ️ Lawal Excel dataset not found locally.")""")
+
+    add_code("""# Step 1.4: Inspect Raw Benchmark 4 — Supabros Phishing Telemetry Dataset v2
+SUPABROS_PATHS = [
+    "data/raw/supabros/supabros.xlsx",
+    "data/raw/Supabros/supabros.xlsx",
+    "backend/data/raw/supabros/supabros.xlsx",
+    "supabros.xlsx",
+]
+
+supabros_df = None
+supabros_path_found = None
+for p in SUPABROS_PATHS:
+    if os.path.exists(p):
+        supabros_path_found = p
+        supabros_df = pd.read_excel(p, sheet_name="Supabros_Phishing_Dataset", engine="openpyxl")
+        break
+
+if supabros_df is not None:
+    print("=" * 80)
+    print("📂 [RAW DATASET 4] Supabros Phishing Telemetry Dataset v2")
+    print(f"• File Location:      {supabros_path_found}")
+    print(f"• Dataset Dimensions: {supabros_df.shape[0]:,} rows × {supabros_df.shape[1]} columns")
+    print(f"• Attack Categories:  {supabros_df['attack_vector_category'].nunique()} unique classes")
+    print(f"• Class Breakdown:    Benign (0) = {(supabros_df['is_phishing']==0).sum():,}, Phishing (1) = {(supabros_df['is_phishing']==1).sum():,}")
+    print("=" * 80)
+    print("\\n🔍 First 3 Supabros Records [supabros_df.head(3)]:")
+    display(supabros_df.head(3))
+else:
+    print("ℹ️ Supabros v2 Excel dataset not found locally.")""")
+
+    add_code("""# Step 1.5: Inspect Raw Benchmark 5 — Supamustea Advanced Phish Detecter Corpus (210,000 Rows)
+SUPAMUSTEA_PATHS = [
+    "data/raw/supabros/supamustea.xlsx",
+    "data/raw/Supabros/supamustea.xlsx",
+    "backend/data/raw/supabros/supamustea.xlsx",
+    "supamustea.xlsx",
+]
+
+supamustea_df = None
+supamustea_path_found = None
+for p in SUPAMUSTEA_PATHS:
+    if os.path.exists(p):
+        supamustea_path_found = p
+        file_size_mb = os.path.getsize(p) / (1024 * 1024)
+        print(f"📂 Streaming {p} ({file_size_mb:.2f} MB) via openpyxl read-only mode...")
+        import openpyxl
+        wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+        ws = wb["supamustea"] if "supamustea" in wb.sheetnames else wb.active
+        rows_iter = ws.iter_rows(values_only=True)
+        header = list(next(rows_iter))
+        supamustea_df = pd.DataFrame(list(rows_iter), columns=header)
+        wb.close()
+        break
+
+if supamustea_df is None and os.path.exists("scripts/generate_supamustea.py"):
+    print("⚙️ supamustea.xlsx not found locally; generating via scripts/generate_supamustea.py ...")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("generate_supamustea", "scripts/generate_supamustea.py")
+    gen_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen_mod)
+    supamustea_df = gen_mod.generate_supabros_phish_detecter(n_records=210000)
+    supamustea_path_found = "data/raw/supabros/supamustea.xlsx"
+
+if supamustea_df is not None:
+    print("=" * 80)
+    print("📂 [RAW DATASET 5] Supamustea Advanced Phish Detecter Corpus")
+    print(f"• File Location:      {supamustea_path_found}")
+    print(f"• Dataset Dimensions: {supamustea_df.shape[0]:,} rows × {supamustea_df.shape[1]} columns (62 telemetry features)")
+    print(f"• Attack Vectors:     {supamustea_df['attack_vector_class'].nunique()} balanced classes")
+    print(f"• Class Breakdown:    Benign (0) = {(supamustea_df['is_phishing']==0).sum():,}, Phishing (1) = {(supamustea_df['is_phishing']==1).sum():,}")
+    print("=" * 80)
+    print("\\n🔍 First 3 Supamustea Records [supamustea_df.head(3)]:")
+    display(supamustea_df.head(3))
+else:
+    print("ℹ️ Supamustea Excel dataset not found locally.")""")
+
+    add_code("""# Step 1.6: Load the Consolidated Text Training Dataset (Aegis Training Pipeline)
 DATASET_CANDIDATE_PATHS = [
     # 1. Consolidated processed dataset generated by Aegis importer
     "data/processed/phishing_training_dataset.csv",
@@ -630,9 +740,115 @@ You must verify your billing credentials within 24 hours to prevent permanent su
 Click the secure verification link immediately: http://192.168.1.100/paypal/login.php!
 \"\"\")""")
 
-    # CELL 15: STEP 8 - DEFENCE Q&A
+    # CELL 15: STEP 8 - MODERN TELEMETRY BENCHMARKING (LAWAL, SUPABROS & SUPAMUSTEA)
     add_md("""---
-## Step 8: Academic Defence Guide & Examiner Q&A
+## Step 8: Modern 2026 Telemetry Multi-Dataset Benchmarking (`lawal`, `Supabros` & `supamustea`)
+
+In addition to legacy raw email text corpora (Enron + SpamAssassin), **Aegis AI Guard** evaluates Decision Tree classifiers on three modern structured phishing telemetry Excel workbooks stored in `data/raw/`:
+1. **`data/raw/lawal/Modern_Phishing_Detection_ML_Dataset.xlsx`** — 1,500 records × 31 telemetry features
+2. **`data/raw/supabros/supabros.xlsx`** — 22,500 records × 45 telemetry features (12 attack vectors)
+3. **`data/raw/supabros/supamustea.xlsx`** — 210,000 records × 62 telemetry features (16 attack vectors across Auth/Transport, DNS/Infra, URL/AiTM/OAuth2, Payload Smuggling, and AI Stylometry)
+
+Below we perform stratified **80/20 Train-Test Splits**, train **Binary** and **Multi-Class Attack Vector** Decision Trees on each dataset, compare their empirical performance side by side, and serialize the Supamustea telemetry models.""")
+
+    add_code("""# Step 8.1: Train & Evaluate Binary + Multi-Class Decision Trees on Lawal, Supabros & Supamustea
+telemetry_runs = []
+supamustea_dt_bin = None
+supamustea_dt_multi = None
+supamustea_feature_cols = None
+
+telemetry_configs = [
+    ("Lawal Modern Phishing (v1)", lawal_df, "email_id", "is_phishing", "attack_vector_category"),
+    ("Supabros Telemetry (v2)", supabros_df, "email_id", "is_phishing", "attack_vector_category"),
+    ("Supamustea Phish Detecter (210K)", supamustea_df, "record_id", "is_phishing", "attack_vector_class"),
+]
+
+for label_name, frame, id_col, bin_col, multi_col in telemetry_configs:
+    if frame is None:
+        print(f"⚠️ Skipping {label_name} (dataset not loaded).")
+        continue
+
+    drop_cols = [c for c in [id_col, bin_col, multi_col] if c in frame.columns]
+    X_tel = frame.drop(columns=drop_cols)
+    y_bin_tel = frame[bin_col]
+    y_multi_tel = frame[multi_col]
+
+    Xt_train, Xt_test, yb_tr, yb_te, ym_tr, ym_te = train_test_split(
+        X_tel, y_bin_tel, y_multi_tel, test_size=0.20, stratify=y_multi_tel, random_state=42
+    )
+
+    t0 = time.time()
+    dt_bin = DecisionTreeClassifier(max_depth=12, random_state=42).fit(Xt_train, yb_tr)
+    dt_multi = DecisionTreeClassifier(max_depth=16, random_state=42).fit(Xt_train, ym_tr)
+    train_sec = time.time() - t0
+
+    yb_pred = dt_bin.predict(Xt_test)
+    ym_pred = dt_multi.predict(Xt_test)
+
+    bin_acc = accuracy_score(yb_te, yb_pred)
+    bin_f1 = f1_score(yb_te, yb_pred, zero_division=0)
+    multi_acc = accuracy_score(ym_te, ym_pred)
+
+    telemetry_runs.append({
+        "Dataset": label_name,
+        "Records": len(frame),
+        "Features": X_tel.shape[1],
+        "Classes": y_multi_tel.nunique(),
+        "Train Split (80%)": len(Xt_train),
+        "Test Split (20%)": len(Xt_test),
+        "Binary Accuracy": f"{bin_acc:.4%}",
+        "Binary F1": f"{bin_f1:.4f}",
+        "Multi-Class Accuracy": f"{multi_acc:.4%}",
+        "Fit Time (s)": round(train_sec, 2),
+    })
+
+    if "Supamustea" in label_name:
+        supamustea_dt_bin = dt_bin
+        supamustea_dt_multi = dt_multi
+        supamustea_feature_cols = list(X_tel.columns)
+        for d in ["backend/models", "models"]:
+            os.makedirs(d, exist_ok=True)
+            joblib.dump(dt_bin, os.path.join(d, "supamustea_dt_binary.pkl"))
+            joblib.dump(dt_multi, os.path.join(d, "supamustea_dt_multiclass.pkl"))
+
+if telemetry_runs:
+    telemetry_summary_df = pd.DataFrame(telemetry_runs)
+    print("=" * 95)
+    print("📊 MODERN TELEMETRY CROSS-DATASET DECISION TREE BENCHMARK (LAWAL, SUPABROS & SUPAMUSTEA)")
+    print("=" * 95)
+    display(telemetry_summary_df)
+else:
+    print("ℹ️ No structured telemetry Excel datasets were available locally.")""")
+
+    add_code("""# Step 8.2: Visualize Supamustea 16-Class Distribution & Top-15 Telemetry Feature Importances
+if supamustea_df is not None and supamustea_dt_multi is not None:
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+    # Plot 1: 16 Attack Vector Classes
+    class_dist = supamustea_df["attack_vector_class"].value_counts()
+    sns.barplot(x=class_dist.values, y=class_dist.index, palette="rocket", ax=axes[0])
+    axes[0].set_title("Supamustea Corpus: 16 Modern Attack Vector Classes (210,000 Rows)", fontsize=12, fontweight="bold")
+    axes[0].set_xlabel("Number of Records")
+    axes[0].set_ylabel("Attack Vector Class")
+
+    # Plot 2: Top 15 Telemetry Feature Importances (Multi-Class Tree)
+    tel_imp = pd.DataFrame({
+        "Feature": supamustea_feature_cols,
+        "Importance": supamustea_dt_multi.feature_importances_,
+    }).sort_values("Importance", ascending=False).head(15)
+    sns.barplot(data=tel_imp, x="Importance", y="Feature", palette="viridis", ax=axes[1])
+    axes[1].set_title("Supamustea Decision Tree: Top 15 Telemetry Feature Importances", fontsize=12, fontweight="bold")
+    axes[1].set_xlabel("Gini Importance Weight")
+    axes[1].set_ylabel("Telemetry Signal")
+
+    plt.tight_layout()
+    plt.show()
+else:
+    print("ℹ️ Supamustea visual skipped (dataset not loaded).")""")
+
+    # CELL 16: STEP 9 - DEFENCE Q&A
+    add_md("""---
+## Step 9: Academic Defence Guide & Examiner Q&A
 
 Use this section to prepare and confidently defend the machine-learning architecture in front of your supervisor and examining committee.
 
@@ -640,19 +856,24 @@ Use this section to prepare and confidently defend the machine-learning architec
 
 ### ❓ Question 1: *"Where is the dataset you are calling in the code, and why did you choose it?"*
 > **Answer**:
-> "We call the **Apache SpamAssassin Public Corpus** (`backend/data/raw/spamassassin/spam_assassin.csv`) and the **Enron Corporate Email Corpus** (`backend/data/raw/enron/emails.csv`).
-> - **SpamAssassin** is the gold-standard academic benchmark containing real-world spam and phishing lures with actual email transmission artifacts.
-> - **Enron** provides tens of thousands of verified authentic corporate workplace emails completely free of phishing indicators.
-> - In Step 1 of the notebook, we load these datasets directly using `pd.read_csv()`, display `df.head()`, summarize class balance, and demonstrate that legitimate emails account for ~80% and phishing ~20%."
+> "We combine two complementary tiers of datasets stored directly in `data/raw/` and `data/processed/`:
+> 1. **Legacy Real-World Email Text Corpora**:
+>    - **Apache SpamAssassin Public Corpus** (`data/raw/spamassassin/spam_assassin.csv`, 5,796 messages) for real-world spam and phishing email payloads.
+>    - **Enron Corporate Email Corpus** (`data/raw/enron/emails.csv`, 517,401 messages) for authentic enterprise workplace emails.
+> 2. **Modern 2026 Structured Telemetry Benchmarks**:
+>    - **Lawal Modern Phishing Dataset** (`data/raw/lawal/Modern_Phishing_Detection_ML_Dataset.xlsx`, 1,500 rows × 31 features).
+>    - **Supabros Telemetry Dataset v2** (`data/raw/supabros/supabros.xlsx`, 22,500 rows × 45 features across 12 classes).
+>    - **Supamustea Advanced Phish Detecter Corpus** (`data/raw/supabros/supamustea.xlsx`, 210,000 rows × 62 telemetry features across 16 modern attack vectors including AiTM MFA bypass, LLM spear-phishing, OAuth2 consent phishing, QR Quishing, and HTML/SVG smuggling).
+> - In Step 1 of the notebook, we call each dataset directly with `pd.read_csv()` and `pd.read_excel()`, display `.head()` and class summaries, and then run stratified 80/20 splits and Decision Tree benchmarks in Steps 3–8."
 
 ---
 
 ### ❓ Question 2: *"Why did you use a Decision Tree instead of Deep Learning or Large Language Models (LLMs)?"*
 > **Answer**:
 > "We intentionally chose a Decision Tree for three core architectural reasons:
-> 1. **Ultra-Low Latency (< 1ms vs > 800ms)**: Real-time email gateways process thousands of inbound messages per minute. A Decision Tree evaluates seven boolean/numeric comparisons in sub-millisecond time.
-> 2. **Complete Explainability (SOC Auditability)**: Enterprise security teams require transparent rationale for quarantined messages. A Decision Tree provides exact branching rules (e.g. `num_links > 2 AND has_ip_url == 1`), unlike black-box deep neural networks.
-> 3. **Resource Footprint**: The compiled `.pkl` artifact is less than 50 KB, enabling deployment to serverless containers without requiring expensive GPU infrastructure."
+> 1. **Ultra-Low Latency (< 1ms vs > 800ms)**: Real-time email gateways process thousands of inbound messages per minute. A Decision Tree evaluates boolean/numeric comparisons in sub-millisecond time.
+> 2. **Complete Explainability (SOC Auditability)**: Enterprise security teams require transparent rationale for quarantined messages. A Decision Tree provides exact branching rules (e.g. `num_links > 2 AND has_ip_url == 1`, or `aitm_reverse_proxy_js == 1 AND spf_pass == 0`), unlike black-box deep neural networks.
+> 3. **Resource Footprint**: The compiled `.pkl` artifact is lightweight, enabling deployment to serverless containers without requiring expensive GPU infrastructure."
 
 ---
 
@@ -667,7 +888,7 @@ Use this section to prepare and confidently defend the machine-learning architec
 > **Answer**:
 > "Our tree splits nodes using the **Gini Impurity** metric:
 > $$I_G(p) = 1 - \\sum_{i=1}^{J} p_i^2$$
-> At each step, the algorithm chooses the feature and threshold that maximizes Information Gain (the greatest reduction in impurity). Features like `has_ip_url` and `num_suspicious_words` yield the highest impurity reduction near the root."
+> At each step, the algorithm chooses the feature and threshold that maximizes Information Gain (the greatest reduction in impurity)."
 
 ---
 
@@ -677,8 +898,10 @@ Use this section to prepare and confidently defend the machine-learning architec
 
 ---
 ### 🎓 Summary of Model Artifacts Produced:
-- `phishing_model.pkl`: Baseline production model.
+- `phishing_model.pkl`: Baseline production text-heuristic model.
 - `phishing_model_balanced.pkl`: High-recall balanced model for mission-critical deployments.
+- `supamustea_dt_binary.pkl`: Binary Decision Tree trained on the 210,000-row Supamustea 62-feature telemetry corpus.
+- `supamustea_dt_multiclass.pkl`: 16-class attack vector Decision Tree trained on the Supamustea telemetry corpus.
 - Ready for immediate inspection, demonstration, and oral defence.""")
 
     output_path = Path("Aegis_AI_Guard_Model_Training.ipynb")

@@ -26,5 +26,47 @@
       "imported_rows": 0,
       "note": "public repo has no downloadable dataset rows yet"
     }
+  ],
+  "telemetry_datasets": [
+    {
+      "source": "lawal",
+      "path": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\data\\raw\\lawal\\Modern_Phishing_Detection_ML_Dataset.xlsx",
+      "sheet": "Phishing_ML_Dataset",
+      "present": true,
+      "rows": 1500,
+      "columns": 34,
+      "size_mb": 0.22,
+      "note": "structured telemetry workbook (1,500 rows x 34 cols)"
+    },
+    {
+      "source": "supabros",
+      "path": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\data\\raw\\supabros\\supabros.xlsx",
+      "sheet": "Supabros_Phishing_Dataset",
+      "present": true,
+      "rows": 22500,
+      "columns": 48,
+      "size_mb": 4.15,
+      "note": "structured telemetry workbook (22,500 rows x 48 cols)"
+    },
+    {
+      "source": "supamustea",
+      "path": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\data\\raw\\supabros\\supamustea.xlsx",
+      "sheet": "supamustea",
+      "present": true,
+      "rows": 210000,
+      "columns": 65,
+      "size_mb": 54.86,
+      "note": "structured telemetry workbook (210,000 rows x 65 cols)"
+    },
+    {
+      "source": "supabros_batches",
+      "path": "C:\\Users\\user\\Desktop\\Aegis-AI-Guard\\data\\raw\\supabros\\supabros_phish_detecter_batch_*.csv",
+      "present": true,
+      "files": 4,
+      "rows": 200000,
+      "columns": 27,
+      "size_mb": 17.36,
+      "note": "4 telemetry CSV batches (200,000 rows x 27 cols)"
+    }
   ]
 }
